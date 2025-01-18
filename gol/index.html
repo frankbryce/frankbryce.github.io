@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conway's Game of Life</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="controls">
+        <div>
+            <button id="playPauseButton">Play</button>
+            <button id="stepButton">Step</button>
+            <button id="clearButton">Clear</button>
+            <button id="resetButton">Reset</button>
+        </div>
+        <div>
+            <label for="speedSlider">Speed:</label>
+            <input type="range" id="speedSlider" min="0" max="100" value="50">
+        </div>
+        <div>
+            <label for="rowsInput">Rows:</label>
+            <input type="number" id="rowsInput" value="20">
+            <label for="colsInput">Cols:</label>
+            <input type="number" id="colsInput" value="30">
+        </div>
+        <div>
+            <label for="cellSizeInput">Cell Size:</label>
+            <input type="number" id="cellSizeInput" value="25">
+        </div>
+        <div>
+            <input type="checkbox" id="wrapCheckbox">
+            <label for="wrapCheckbox">Wrap Around</label>
+        </div>
+        <div>
+            <button id="saveButton">Save</button>
+            <input type="file" id="loadInput" accept=".json">
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script src="script.js"></script>
+</body>
+</html>
