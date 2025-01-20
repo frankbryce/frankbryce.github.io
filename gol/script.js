@@ -211,28 +211,26 @@ function updateGridSize() {
 }
 
 function handleCellClick(x, y, keep_on=false) {
-    if (!isPlaying) {
-        const cellX = Math.floor(x / cellSize);
-        const cellY = Math.floor(y / cellSize);
-        if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
-            if (keep_on) {
-                grid[cellY][cellX] = 1
-            } else {
-                grid[cellY][cellX] = 1 - grid[cellY][cellX];
-            }
-            drawGrid();
+    const cellX = Math.floor(x / cellSize);
+    const cellY = Math.floor(y / cellSize);
+    if (cellX >= 0 && cellX < gridWidth && cellY >= 0 && cellY < gridHeight) {
+        if (keep_on) {
+            grid[cellY][cellX] = 1
+        } else {
+            grid[cellY][cellX] = 1 - grid[cellY][cellX];
         }
+        drawGrid();
     }
 }
 
-canvas.addEventListener('click', () => {
+canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     handleCellClick(x, y);
 });
 
-canvas.addEventListener('mousedown', (event) => {
+canvas.addEventListener('mousedown', () => {
     isMouseDown = true;
 });
 
