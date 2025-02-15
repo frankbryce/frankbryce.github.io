@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cellular Automata Ruleset Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="controlPanel">
+    <h1>Cellular Automata Ruleset Explorer</h1>
+    <button id="playPauseButton">Play</button>
+    <button id="stepButton">Step</button>
+    <div>
+      <label for="speedSlider">Speed (ms): </label>
+      <input type="range" id="speedSlider" min="0" max="250" step="25" value="50">
+      <span id="speedDisplay">50</span>
+    </div>
+    <div>
+      <label for="wrapToggle">Wrap Around: </label>
+      <input type="checkbox" id="wrapToggle" checked>
+    </div>
+    <div>
+      <label for="gridSizeInput">Grid Size: </label>
+      <input type="number" id="gridSizeInput" value="14" min="5" max="100">
+      <button id="resizeButton">Resize Grid</button>
+    </div>
+    <div>
+      <button id="saveConfigButton">Save Config</button>
+      <button id="uploadConfigButton">Load Config</button>
+      <input type="file" id="uploadConfigInput" style="display:none;">
+    </div>
+    <div>
+      <button id="clearGridButton">Clear Grid</button>
+    </div>
+    <hr>
+    <h3>Rulesets</h3>
+    <!-- Default Conway Game of Life ruleset JSON:
+         For dead cells: becomes alive only if 3 neighbors (B3).
+         For live cells: remains alive only if 2 or 3 neighbors (S23). -->
+    <textarea id="rulesetTextarea" rows="8" cols="40" placeholder='Paste rulesets JSON here'>[
+  {
+    "dead": [0, 0, 0, 1, 1, 1, 0, 0, 0],
+    "live": [0, 1, 1, 0, 0, 0, 1, 0, 0]
+  }
+]</textarea>
+    <br>
+    <button id="loadRulesetsButton">Load Rulesets</button>
+    <div>
+      <label for="rulesetSelect">Select Ruleset: </label>
+      <select id="rulesetSelect">
+        <option value="-1">None</option>
+      </select>
+    </div>
+    <div>
+      <h4>Current Ruleset:</h4>
+      <pre id="rulesetJsonDisplay">No ruleset selected.</pre>
+    </div>
+  </div>
+  <div id="mainContent">
+    <canvas id="gridCanvas" width="500" height="500"></canvas>
+  </div>
+  <script src="ca.js"></script>
+</body>
+</html>

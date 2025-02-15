@@ -1,0 +1,31 @@
+/* Flex container to display side panel and main content */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  display: flex;
+  height: 100vh;
+}
+
+/* The side panel (configuration area) */
+#controlPanel {
+  width: 400px;
+  background-color: #f2f2f2;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border-right: 1px solid #ddd;
+}
+
+/* Main content area for the canvas */
+#mainContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #fff;
+}
+
+/* Optional styling for the canvas */
+canvas {
+  border: 1px solid #333;
+} 
