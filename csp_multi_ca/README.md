@@ -16,5 +16,4 @@ With this multi-layer concept, I made another CSP to find walkers, and so far I 
 
 ![CA_O_Bear](CA_O_Bear.mp4)
 
-
-
+The CSP is still running, so I will update this post with more information as I find more walkers.
