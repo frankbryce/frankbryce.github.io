@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Unicode Reference</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body, #app-container {
+            height: 100%;
+            margin: 0;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for drag handles */
+        .drag-handle {
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px; /* Width for the drag handle area */
+            height: 100%;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.2s;
+        }
+        tr:hover .drag-handle, th:hover .drag-handle {
+            opacity: 1; /* Visible on hover */
+        }
+        .drag-dots {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .dot {
+            width: 3px;
+            height: 3px;
+            background-color: #9ca3af; /* Gray-400 */
+            border-radius: 50%;
+        }
+        /* Specific styles for column drag handle */
+        .column-drag-handle {
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 20px; /* Height for the column drag handle area */
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        th:hover .column-drag-handle {
+            opacity: 1;
+        }
+        .column-dots {
+            display: flex;
+            flex-direction: row;
+            gap: 2px;
+        }
+        /* Styles for the remove button (x) */
+        .remove-btn {
+            cursor: pointer;
+            color: #ef4444; /* red-500 */
+            font-weight: bold;
+            opacity: 0; /* Hidden by default */
+            transition: opacity 0.2s;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background-color: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem; /* Make the 'x' larger */
+            line-height: 1; /* Adjust line height for better centering */
+        }
+        .remove-btn:hover {
+            background-color: #fca5a5; /* red-300 on hover */
+        }
+        tr:hover .remove-btn {
+            opacity: 1; /* Visible on row hover */
+        }
+        /* Ensure the main container grows to fill available space */
+        .main-content-wrapper {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        /* Maximize table body height */
+        .table-scroll-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            /* Added padding from main div, remove explicit padding here */
+            padding-left: 1rem; /* px-4 equivalent */
+            padding-right: 1rem; /* px-4 equivalent */
+            padding-bottom: 1rem; /* pb-4 equivalent */
+        }
+        /* Table headers are sticky within their scroll container */
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        /* Tooltip styles */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+        }
+        /* Make the tooltip text appear and stay when hovering over the container */
+        .tooltip-container .tooltip-text {
+            visibility: hidden;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px 12px;
+            position: absolute;
+            z-index: 20;
+            bottom: 125%; /* Position above the element */
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            min-width: 280px; /* Adjust as needed */
+            font-size: 0.875rem; /* text-sm */
+            line-height: 1.4; /* Better readability */
+            pointer-events: none; /* Allows clicks through the tooltip itself by default */
+            white-space: normal; /* Allow text to wrap */
+        }
+        /* Show tooltip on hover of the container */
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+            pointer-events: auto; /* Re-enable pointer events for interactions within the tooltip */
+        }
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.8) transparent transparent transparent;
+        }
+        .tooltip-text a {
+            color: #81ccec; /* Light blue for links */
+            text-decoration: underline;
+        }
+        .tooltip-text a:hover {
+            color: #b3e5fc; /* Lighter blue on hover */
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 flex flex-col items-center py-2">
+    <div id="app-container" class="bg-white rounded-xl shadow-lg w-full max-w-4xl flex flex-col main-content-wrapper overflow-hidden">
+        <div class="p-4 pb-0">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-4">Personal Unicode Reference</h1>
+
+            <div id="api-key-status-banner" class="p-3 rounded-lg mb-4 text-center hidden flex items-center justify-center gap-2">
+                <span id="api-key-status-text"></span>
+                <div id="api-key-tooltip-container" class="tooltip-container">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                    </svg>
+                    <span class="tooltip-text">
+                        To enable Unicode lookup, add your API key to the URL like this:<br>
+                        `your-app-url/?apikey=YOUR_API_KEY`<br><br>
+                        You can generate a Gemini API key from the
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>.
+                        Remember to enable the "Generative Language API" for your project.
+                    </span>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                <div class="flex-grow">
+                    <input
+                        type="text"
+                        id="search-input"
+                        class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                        placeholder="e.g., infinity symbol, integral sign"
+                    />
+                </div>
+                <button
+                    id="search-button"
+                    class="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 font-semibold"
+                >
+                    <svg class="h-5 w-5 text-white animate-spin hidden" id="loading-spinner" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </button>
+                <button
+                    id="share-button"
+                    class="bg-green-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-green-700 transition-colors duration-200 flex items-center justify-center gap-2 font-semibold"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-share-2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.42"/><path d="m8.59 10.49 6.83-3.42"/></svg>
+                </button>
+            </div>
+
+            <div id="message-display" class="bg-blue-100 text-blue-800 p-3 rounded-lg mb-4 text-center hidden"></div>
+
+            <div id="suggested-symbol-area" class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-lg shadow-sm mb-4 hidden flex-col md:flex-row items-center justify-between gap-3">
+                <div class="text-lg">
+                    Suggested Symbol: <span class="font-bold text-xl" id="suggested-symbol-value"></span> (Unicode: <span id="suggested-unicode-value"></span>) - <span id="suggested-description-value"></span>
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        id="accept-button"
+                        class="bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 transition-colors duration-200 font-semibold"
+                    >
+                        Accept
+                    </button>
+                    <button
+                        id="reject-button"
+                        class="bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition-colors duration-200 font-semibold"
+                    >
+                        Reject
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-scroll-container">
+            <table class="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead>
+                    <tr id="table-header-row">
+                        <th class="px-4 py-2 border-b border-gray-200 bg-gray-50 w-8"></th>
+                        <!-- Column headers will be dynamically inserted here -->
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <!-- Table rows will be dynamically inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        // Global state variables
+        const initialSymbols = [
+            { symbol: '×', unicode: 'U+00D7', description: 'Multiplication' },
+            { symbol: '÷', unicode: 'U+00F7', description: 'Division' },
+            { symbol: '≠', unicode: 'U+2260', description: 'Not equals' },
+            { symbol: '≤', unicode: 'U+2264', description: 'Less than or equal to' },
+            { symbol: '≥', unicode: 'U+2265', description: 'Greater than or equal to' },
+            { symbol: '∀', unicode: 'U+2200', description: 'For all' },
+            { symbol: '∃', unicode: 'U+2203', description: 'There exists' },
+            { symbol: '∈', unicode: 'U+2208', description: 'Element of' },
+            { symbol: '∉', unicode: 'U+2209', description: 'Not an element of' },
+            { symbol: '⊂', unicode: 'U+2282', description: 'Subset of' },
+            { symbol: '⊃', unicode: 'U+2283', description: 'Superset of' },
+            { symbol: '∪', unicode: 'U+222A', description: 'Union' },
+            { symbol: '∩', unicode: 'U+2229', description: 'Intersection' },
+            { symbol: '√', unicode: 'U+221A', description: 'Square root' },
+            { symbol: '∞', unicode: 'U+221E', description: 'Infinity' },
+            { symbol: 'π', unicode: 'U+03C0', description: 'Pi' },
+            { symbol: '∑', unicode: 'U+2211', description: 'Summation' },
+            { symbol: '∫', unicode: 'U+222B', description: 'Integral' },
+            { symbol: '∅', unicode: 'U+2205', description: 'Empty set' },
+        ];
+
+        let symbols = []; // This will be set based on URL params or initialSymbols
+        let columnOrder = ['symbol', 'unicode', 'description'];
+        let searchTerm = '';
+        let suggestedSymbol = null;
+        let isLoading = false;
+        let message = '';
+        let sortColumn = 'description';
+        let sortDirection = 'asc'; // 'asc' or 'desc'
+        let currentApiKey = ""; // This will hold the API key, either from URL or empty
+        let apiKeyValidationStatus = 'unknown'; // 'unknown', 'valid', 'invalid', 'none_provided'
+
+        let draggedRowIndex = null;
+        let draggedColumnKey = null;
+        let dragOverRowIndex = null;
+        let dragOverColumnKey = null;
+
+        // --- DOM Element References ---
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const shareButton = document.getElementById('share-button');
+        const messageDisplay = document.getElementById('message-display');
+        const suggestedSymbolArea = document.getElementById('suggested-symbol-area');
+        const suggestedSymbolValue = document.getElementById('suggested-symbol-value');
+        const suggestedUnicodeValue = document.getElementById('suggested-unicode-value');
+        const suggestedDescriptionValue = document.getElementById('suggested-description-value');
+        const acceptButton = document.getElementById('accept-button');
+        const rejectButton = document.getElementById('reject-button');
+        const tableHeaderRow = document.getElementById('table-header-row');
+        const tableBody = document.getElementById('table-body');
+        const apiKeyStatusBanner = document.getElementById('api-key-status-banner');
+        const apiKeyStatusText = document.getElementById('api-key-status-text');
+        const apiKeyTooltipContainer = document.getElementById('api-key-tooltip-container');
+
+
+        // Helper function to decode HTML entities (for symbol rendering)
+        function decodeHtml(html) {
+            const txt = document.createElement("textarea");
+            txt.innerHTML = html;
+            return txt.value;
+        }
+
+        // --- UI Update Functions ---
+        function updateMessage() {
+            if (message) {
+                messageDisplay.textContent = message;
+                messageDisplay.classList.remove('hidden');
+            } else {
+                messageDisplay.classList.add('hidden');
+            }
+        }
+
+        function updateLoadingState() {
+            if (isLoading) {
+                loadingSpinner.classList.remove('hidden');
+                searchButton.disabled = true;
+            } else {
+                loadingSpinner.classList.add('hidden');
+                searchButton.disabled = false;
+            }
+        }
+
+        function updateSuggestedSymbolArea() {
+            if (suggestedSymbol) {
+                suggestedSymbolValue.textContent = decodeHtml(suggestedSymbol.symbol);
+                suggestedUnicodeValue.textContent = suggestedSymbol.unicode;
+                suggestedDescriptionValue.textContent = suggestedSymbol.description;
+                suggestedSymbolArea.classList.remove('hidden');
+                suggestedSymbolArea.classList.add('flex'); // Ensure flex display when visible
+            } else {
+                suggestedSymbolArea.classList.add('hidden');
+                suggestedSymbolArea.classList.remove('flex');
+            }
+        }
+
+        function updateApiKeyStatusDisplay() {
+            apiKeyStatusBanner.classList.remove('hidden', 'bg-yellow-100', 'text-yellow-800', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+            
+            if (apiKeyValidationStatus === 'valid') {
+                apiKeyStatusBanner.classList.add('bg-green-100', 'text-green-800');
+                apiKeyStatusText.innerHTML = 'API Key Valid <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-circle inline-block ml-1"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>';
+                apiKeyTooltipContainer.classList.add('hidden'); // Hide tooltip if valid
+            } else if (apiKeyValidationStatus === 'invalid') {
+                apiKeyStatusBanner.classList.add('bg-red-100', 'text-red-800');
+                apiKeyStatusText.innerHTML = 'API Key Invalid <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-circle inline-block ml-1"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>';
+                apiKeyTooltipContainer.classList.remove('hidden'); // Show tooltip for invalid key
+            } else { // 'none_provided'
+                apiKeyStatusBanner.classList.add('bg-yellow-100', 'text-yellow-800');
+                apiKeyStatusText.innerHTML = 'Cannot lookup unicode additions without an API key';
+                apiKeyTooltipContainer.classList.remove('hidden'); // Show tooltip for missing key
+            }
+            apiKeyStatusBanner.classList.remove('hidden');
+        }
+
+        function renderTable() {
+            // Render Headers
+            tableHeaderRow.innerHTML = ''; // Clear existing headers
+            let headerCell = document.createElement('th');
+            headerCell.className = "px-4 py-2 border-b border-gray-200 bg-gray-50 w-8 sticky top-0 z-10";
+            tableHeaderRow.appendChild(headerCell);
+
+            columnOrder.forEach(key => {
+                const th = document.createElement('th');
+                th.className = `relative sticky top-0 z-10 px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-b border-gray-200 bg-gray-50 select-none cursor-grab rounded-t-lg transition-colors duration-200`;
+                th.setAttribute('data-key', key);
+                th.setAttribute('draggable', 'true');
+
+                // Add drag handles
+                th.innerHTML = `
+                    <div class="column-drag-handle absolute top-0 left-0 w-full h-5 flex items-center justify-center">
+                        <div class="column-dots">
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        ${key.charAt(0).toUpperCase() + key.slice(1)}
+                        ${sortColumn === key ? `<span class="ml-1">${sortDirection === 'asc' ? '▲' : '▼'}</span>` : ''}
+                    </div>
+                `;
+
+                // Add sorting click listener
+                if (['unicode', 'description'].includes(key)) {
+                    th.classList.add('cursor-pointer', 'hover:bg-gray-100');
+                    th.addEventListener('click', () => handleSort(key));
+                }
+
+                // Add drag-and-drop listeners for columns
+                th.addEventListener('dragstart', (e) => handleColumnDragStart(e, key));
+                th.addEventListener('dragover', (e) => e.preventDefault());
+                th.addEventListener('dragenter', (e) => handleColumnDragEnter(e, key));
+                th.addEventListener('dragleave', handleColumnDragLeave);
+                th.addEventListener('drop', handleColumnDrop);
+                th.addEventListener('dragend', handleColumnDragEnd);
+
+                tableHeaderRow.appendChild(th);
+            });
+
+            // Add the empty header for the remove column
+            const removeHeader = document.createElement('th');
+            removeHeader.className = "sticky top-0 z-10 px-4 py-2 border-b border-gray-200 bg-gray-50 w-16 text-right";
+            tableHeaderRow.appendChild(removeHeader);
+
+
+            // Render Rows
+            tableBody.innerHTML = ''; // Clear existing rows
+
+            const sortedSymbols = getSortedSymbols();
+
+            if (sortedSymbols.length === 0) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = columnOrder.length + 2; // +2 for drag handle and remove column
+                td.className = "text-center py-8 text-gray-500";
+                td.textContent = "No symbols in the table. Search for some!";
+                tr.appendChild(td);
+                tableBody.appendChild(tr);
+            } else {
+                sortedSymbols.forEach((item, index) => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-gray-200 hover:bg-gray-50 transition-colors duration-200 relative";
+                    tr.setAttribute('draggable', 'true');
+                    // Store the original index (before sorting) for accurate removal
+                    tr.setAttribute('data-original-index', symbols.indexOf(item));
+
+                    // Add drag handle cell
+                    const dragHandleTd = document.createElement('td');
+                    dragHandleTd.className = "px-4 py-1 text-center w-8 select-none cursor-grab";
+                    dragHandleTd.innerHTML = `
+                        <div class="drag-handle absolute top-0 left-0 h-full w-5 flex items-center justify-center">
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                    `;
+                    tr.appendChild(dragHandleTd);
+
+                    columnOrder.forEach(key => {
+                        const td = document.createElement('td');
+                        td.className = "px-4 py-1 whitespace-nowrap text-sm text-gray-900";
+                        td.textContent = key === 'symbol' ? decodeHtml(item[key]) : item[key];
+                        tr.appendChild(td);
+                    });
+
+                    // Add remove button cell
+                    const removeTd = document.createElement('td');
+                    removeTd.className = "px-4 py-1 whitespace-nowrap text-sm text-gray-900 text-right";
+                    const removeButton = document.createElement('button');
+                    removeButton.className = "remove-btn";
+                    removeButton.innerHTML = '&times;';
+                    // Use data-original-index for removal
+                    removeButton.onclick = () => handleRemoveRow(parseInt(tr.getAttribute('data-original-index')));
+                    removeTd.appendChild(removeButton);
+                    tr.appendChild(removeTd);
+
+                    // Add drag-and-drop listeners for rows
+                    tr.addEventListener('dragstart', (e) => handleRowDragStart(e, index)); // Use sorted index for drag operations
+                    tr.addEventListener('dragover', (e) => e.preventDefault());
+                    tr.addEventListener('dragenter', (e) => handleRowDragEnter(e, index));
+                    tr.addEventListener('dragleave', handleRowDragLeave);
+                    tr.addEventListener('drop', handleRowDrop);
+                    tr.addEventListener('dragend', handleRowDragEnd);
+
+                    tableBody.appendChild(tr);
+                });
+            }
+        }
+
+        function getSortedSymbols() {
+            const sortableSymbols = [...symbols];
+            if (sortColumn) {
+                sortableSymbols.sort((a, b) => {
+                    const aValue = a[sortColumn] || '';
+                    const bValue = b[sortColumn] || '';
+
+                    if (typeof aValue === 'string' && typeof bValue === 'string') {
+                        return sortDirection === 'asc'
+                            ? aValue.localeCompare(bValue)
+                            : bValue.localeCompare(aValue);
+                    }
+                    return 0;
+                });
+            }
+            return sortableSymbols;
+        }
+
+        function updateAllUI() {
+            updateMessage();
+            updateLoadingState();
+            updateSuggestedSymbolArea();
+            updateApiKeyStatusDisplay(); // Update API key source display
+            renderTable(); // Re-render the entire table based on current state
+        }
+
+        // --- Data Loading and API Key Handling ---
+        async function loadInitialDataAndApiKey() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const encodedData = urlParams.get('data');
+            const urlApiKey = urlParams.get('apikey');
+
+            if (urlApiKey) {
+                currentApiKey = urlApiKey;
+                const isValid = await validateApiKey(urlApiKey);
+                if (isValid) {
+                    apiKeyValidationStatus = 'valid';
+                } else {
+                    apiKeyValidationStatus = 'invalid';
+                }
+            } else {
+                currentApiKey = ""; // Default to empty if not in URL, Canvas will provide it
+                apiKeyValidationStatus = 'none_provided';
+            }
+
+            if (encodedData) {
+                try {
+                    const decodedData = JSON.parse(decodeURIComponent(encodedData));
+                    symbols = decodedData.symbols || initialSymbols;
+                    columnOrder = decodedData.columnOrder || ['symbol', 'unicode', 'description'];
+                    sortColumn = decodedData.sortColumn || 'description';
+                    sortDirection = decodedData.sortDirection || 'asc';
+                    message = 'Table loaded from URL!';
+                } catch (error) {
+                    console.error('Error decoding URL data:', error);
+                    message = 'Invalid URL data. Loading default table.';
+                    symbols = initialSymbols; // Fallback to initial if URL data invalid
+                }
+            } else {
+                symbols = initialSymbols; // Load default if no URL data
+            }
+            updateAllUI(); // Render UI after all initial data and API key status are determined
+        }
+
+        // --- API Key Validation ---
+        async function validateApiKey(apiKey) {
+            if (!apiKey) return false;
+            try {
+                // Use a very light API call to check key validity
+                const dummyPrompt = "hello";
+                const payload = { contents: [{ role: "user", parts: [{ text: dummyPrompt }] }] };
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                // Check for successful response (status 2xx)
+                // A 400 status for "hello" might indicate an invalid key too, but 200 is definitive success.
+                return response.ok;
+            } catch (error) {
+                console.error("API key validation network error:", error);
+                return false;
+            }
+        }
+
+
+        // --- Event Handlers ---
+        async function handleSearch() {
+            searchTerm = searchInput.value.trim();
+            if (!searchTerm) {
+                message = 'Please enter a description to search.';
+                updateMessage();
+                return;
+            }
+            // If no API key is provided or it's invalid, prevent search
+            if (apiKeyValidationStatus !== 'valid') {
+                message = 'Please provide a valid API key to use the lookup feature.';
+                updateMessage();
+                return;
+            }
+
+            isLoading = true;
+            suggestedSymbol = null;
+            message = '';
+            updateAllUI();
+
+            try {
+                const chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: `Provide the Unicode symbol and its exact Unicode code (e.g., U+XXXX) for "${searchTerm}". Provide a simple description. Respond only in JSON format with "symbol", "unicode", and "description" keys.` }] });
+
+                const payload = {
+                    contents: chatHistory,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "symbol": { "type": "STRING" },
+                                "unicode": { "type": "STRING" },
+                                "description": { "type": "STRING" }
+                            },
+                            "propertyOrdering": ["symbol", "unicode", "description"]
+                        }
+                    }
+                };
+                const apiKey = currentApiKey;
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error("Gemini API error:", response.status, errorData);
+                    if (response.status === 403) {
+                        message = `Gemini API call failed: ${response.status} Forbidden. Please check your API key.`;
+                        // Set invalid status here for immediate feedback if a key was provided
+                        apiKeyValidationStatus = 'invalid';
+                    } else if (response.status === 400) {
+                         message = `Gemini API call failed: ${response.status} Bad Request. Likely an invalid prompt or schema.`;
+                    }
+                    else {
+                        message = `Gemini API call failed: ${response.status} ${errorData.error?.message || 'Unknown error'}.`;
+                    }
+                }
+                else {
+                    const result = await response.json();
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const jsonText = result.candidates[0].content.parts[0].text;
+                        try {
+                            const parsed = JSON.parse(jsonText);
+                            if (parsed.symbol && parsed.unicode && parsed.description) {
+                                suggestedSymbol = parsed;
+                            } else {
+                                message = "Could not find a clear symbol or parsing issue. Please try a different description.";
+                            }
+                        } catch (jsonError) {
+                            console.error("JSON parsing error:", jsonError, "Raw response:", jsonText);
+                            message = "Failed to parse the symbol data. Please try again or refine your search.";
+                        }
+                    } else {
+                        message = "No symbol found for your description. Try a different phrasing.";
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching from Gemini API:', error);
+                message = 'Network error: Could not connect to Gemini API. Please check your internet connection or try again later.';
+            } finally {
+                isLoading = false;
+                updateAllUI();
+            }
+        }
+
+        function handleAcceptSymbol() {
+            if (suggestedSymbol) {
+                symbols = [...symbols, suggestedSymbol];
+                suggestedSymbol = null;
+                searchTerm = '';
+                searchInput.value = ''; // Clear input field
+                message = 'Symbol added to table!';
+                updateAllUI();
+            }
+        }
+
+        function handleRejectSymbol() {
+            suggestedSymbol = null;
+            searchTerm = '';
+            searchInput.value = ''; // Clear input field
+            message = 'Symbol suggestion rejected.';
+            updateAllUI();
+        }
+
+        function handleShare() {
+            const dataToEncode = { symbols, columnOrder, sortColumn, sortDirection };
+            // Use encodeURIComponent for robust URL encoding of Unicode characters
+            const encodedData = encodeURIComponent(JSON.stringify(dataToEncode));
+            let shareUrl = `${window.location.origin}${window.location.pathname}?data=${encodedData}`;
+
+            // If an API key is currently in use from URL, append it to the share URL
+            if (currentApiKey) {
+                const url = new URL(shareUrl);
+                url.searchParams.set('apikey', currentApiKey);
+                shareUrl = url.toString();
+            }
+
+            try {
+                // Use navigator.clipboard.writeText if available (modern browsers)
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(shareUrl)
+                        .then(() => {
+                            message = 'URL copied to clipboard!';
+                            updateMessage();
+                        })
+                        .catch(err => {
+                            console.error('Could not copy text using clipboard API: ', err);
+                            // Fallback if clipboard API fails
+                            const textArea = document.createElement("textarea");
+                            textArea.value = shareUrl;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(textArea);
+                            message = 'URL copied to clipboard! (Fallback)';
+                            updateMessage();
+                        });
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement("textarea");
+                    textArea.value = shareUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    message = 'URL copied to clipboard! (Fallback)';
+                    updateMessage();
+                }
+            } catch (err) {
+                console.error('Failed to copy URL completely: ', err);
+                message = 'Failed to copy URL. Please copy manually: ' + shareUrl;
+                updateMessage();
+            }
+        }
+
+        function handleRemoveRow(originalIndexToRemove) {
+            // Find the actual index in the 'symbols' array based on the original index
+            const indexInSymbolsArray = symbols.findIndex(symbol => symbols.indexOf(symbol) === originalIndexToRemove);
+            if (indexInSymbolsArray > -1) {
+                symbols.splice(indexInSymbolsArray, 1);
+                updateAllUI();
+                message = 'Row removed.';
+                updateMessage();
+            }
+        }
+
+        function handleSort(columnKey) {
+            if (sortColumn === columnKey) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = columnKey;
+                sortDirection = 'asc';
+            }
+            updateAllUI();
+        }
+
+        // --- Drag and Drop Logic ---
+        function handleRowDragStart(e, index) { // index here is the sorted index
+            draggedRowIndex = index;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', ''); // Required for Firefox
+        }
+
+        function handleRowDragEnter(e, index) { // index here is the sorted index
+            e.preventDefault(); // Allow drop
+            if (draggedRowIndex !== null && draggedRowIndex !== index) {
+                const currentRows = Array.from(tableBody.children);
+                currentRows.forEach(row => row.classList.remove('bg-blue-100'));
+
+                const targetRow = e.currentTarget;
+                targetRow.classList.add('bg-blue-100');
+                dragOverRowIndex = index;
+            }
+        }
+
+        function handleRowDragLeave(e) {
+            e.currentTarget.classList.remove('bg-blue-100');
+        }
+
+        function handleRowDrop(e) {
+            e.preventDefault();
+            if (draggedRowIndex !== null && dragOverRowIndex !== null && draggedRowIndex !== dragOverRowIndex) {
+                // Get the currently sorted array to perform the reordering
+                const currentSortedSymbols = getSortedSymbols();
+                const [reorderedItem] = currentSortedSymbols.splice(draggedRowIndex, 1);
+                currentSortedSymbols.splice(dragOverRowIndex, 0, reorderedItem);
+
+                // Update the original 'symbols' array based on the new order of the sorted array
+                // This is a crucial step when sorting is involved before drag-and-drop
+                const newSymbolsOrder = currentSortedSymbols.map(item => symbols.find(originalItem => originalItem === item));
+                symbols = newSymbolsOrder;
+
+                updateAllUI();
+            }
+            Array.from(tableBody.children).forEach(row => row.classList.remove('bg-blue-100'));
+            draggedRowIndex = null;
+            dragOverRowIndex = null;
+        }
+
+        function handleRowDragEnd(e) {
+            Array.from(tableBody.children).forEach(row => row.classList.remove('bg-blue-100'));
+            draggedRowIndex = null;
+            dragOverRowIndex = null;
+        }
+
+        function handleColumnDragStart(e, key) {
+            draggedColumnKey = key;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', '');
+        }
+
+        function handleColumnDragEnter(e, key) {
+            e.preventDefault();
+            if (draggedColumnKey !== null && draggedColumnKey !== key) {
+                const currentHeaders = Array.from(tableHeaderRow.children);
+                currentHeaders.forEach(header => header.classList.remove('bg-blue-100'));
+
+                const targetHeader = e.currentTarget;
+                targetHeader.classList.add('bg-blue-100');
+                dragOverColumnKey = key;
+            }
+        }
+
+        function handleColumnDragLeave(e) {
+            e.currentTarget.classList.remove('bg-blue-100');
+        }
+
+        function handleColumnDrop(e) {
+            e.preventDefault();
+            if (draggedColumnKey !== null && dragOverColumnKey !== null && draggedColumnKey !== dragOverColumnKey) {
+                const newColumnOrder = [...columnOrder];
+                const draggedIndex = newColumnOrder.indexOf(draggedColumnKey);
+                const targetIndex = newColumnOrder.indexOf(dragOverColumnKey);
+
+                if (draggedIndex !== -1 && targetIndex !== -1) {
+                    const [reorderedColumn] = newColumnOrder.splice(draggedIndex, 1);
+                    newColumnOrder.splice(targetIndex, 0, reorderedColumn);
+                    columnOrder = newColumnOrder;
+                    updateAllUI();
+                }
+            }
+            Array.from(tableHeaderRow.children).forEach(header => header.classList.remove('bg-blue-100'));
+            draggedColumnKey = null;
+            dragOverColumnKey = null;
+        }
+
+        function handleColumnDragEnd(e) {
+            Array.from(tableHeaderRow.children).forEach(header => header.classList.remove('bg-blue-100'));
+            draggedColumnKey = null;
+            dragOverColumnKey = null;
+        }
+
+        // --- Initial Setup & Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadInitialDataAndApiKey(); // Load data and validate API key on page load
+
+            searchInput.addEventListener('input', (e) => { searchTerm = e.target.value; });
+            searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSearch(); });
+            searchButton.addEventListener('click', handleSearch);
+            shareButton.addEventListener('click', handleShare);
+            acceptButton.addEventListener('click', handleAcceptSymbol);
+            rejectButton.addEventListener('click', handleRejectSymbol);
+        });
+
+    </script>
+</body>
+</html>
