@@ -27,7 +27,7 @@
         #main-container {
             display: flex;
             flex-direction: column;
-            gap: 2rem;
+            gap: 1.5rem; /* Reduced gap */
             max-width: 900px;
             width: 100%;
             background: #fff;
@@ -108,6 +108,13 @@
             position: relative; /* Required for Chart.js responsive behavior */
             min-height: 250px; /* Give it some space */
         }
+        /* Style for training toggle */
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -133,15 +140,21 @@
                 <button id="play-pause-btn">Play</button>
                 <button id="step-btn">Step</button>
                 <button id="reset-btn" class="secondary-btn">Reset</button>
-                <button id="share-btn" class="secondary-btn">Share</button>
-                <button id="save-state-btn" class="secondary-btn">Save State</button>
-                <label for="load-state-input" class="secondary-btn" style="cursor: pointer;">Load State</label>
-                <input type="file" id="load-state-input" accept=".json,.bin" multiple style="display: none;" />
             </div>
              <div class="control-group" style="font-size: 0.9em; color: #555;">
                 <span>Game: <span id="game-number">0</span></span>
                 <span>Step: <span id="step-number">0</span> / <span id="max-steps-number">4</span></span>
                 <span>Final Value: <span id="final-value">N/A</span></span>
+            </div>
+            <div class="control-group">
+                <button id="share-btn" class="secondary-btn">Share</button>
+                <button id="save-state-btn" class="secondary-btn">Save State</button>
+                <label for="load-state-input" class="secondary-btn" style="cursor: pointer;">Load State</label>
+                <input type="file" id="load-state-input" accept=".json,.bin" multiple style="display: none;" />
+                <label for="training-enabled-checkbox" class="toggle-label">
+                    <input type="checkbox" id="training-enabled-checkbox" checked>
+                    Enable Training
+                </label>
             </div>
         </div>
 
@@ -196,6 +209,7 @@
             const shareBtn = document.getElementById('share-btn');
             const saveStateBtn = document.getElementById('save-state-btn');
             const loadStateInput = document.getElementById('load-state-input');
+            const trainingEnabledCheckbox = document.getElementById('training-enabled-checkbox');
             
             const gameNumberEl = document.getElementById('game-number');
             const stepNumberEl = document.getElementById('step-number');
@@ -336,7 +350,6 @@
             const trainNetwork = async () => {
                 if (appState.gameTrainingData.length === 0) return;
                 
-                console.log(`--- Training on ${appState.gameTrainingData.length} samples from Game ${appState.gameNumber} ---`);
                 appState.isTraining = true;
                 updateUI();
                 await tf.nextFrame();
@@ -352,7 +365,6 @@
                 for (let i = 0; i < epochs; i++) {
                     const loss = await appState.policyNetwork.trainOnBatch(xs, ys);
                     finalLossValue = Array.isArray(loss) ? loss[0] : loss;
-                    console.log(`Training Epoch ${i + 1}/${epochs}... Loss: ${finalLossValue.toFixed(4)}`);
                     await tf.nextFrame();
                 }
                 
@@ -468,9 +480,17 @@
 
             const endGame = async () => {
                 const finalValue = calculateValue(appState.playgroundGrid, appState.targetGrid, config.maxStepsPerGame);
-                appState.valueHistory.push(finalValue);
+                const wasTrained = trainingEnabledCheckbox.checked;
+
+                appState.valueHistory.push({ value: finalValue, trained: wasTrained });
                 updatePlot();
-                await trainNetwork();
+
+                if (wasTrained) {
+                    await trainNetwork();
+                } else {
+                    appState.gameTrainingData.forEach(d => d.stateTensor.dispose());
+                    appState.gameTrainingData = [];
+                }
                 startNewGame();
             };
 
@@ -500,14 +520,31 @@
                 if (valueChart) valueChart.destroy();
                 valueChart = new Chart(valueChartCanvas.getContext('2d'), {
                     type: 'line',
-                    data: { labels: [], datasets: [{ label: 'Final Value per Game', data: [], borderColor: '#4267B2', backgroundColor: 'rgba(66, 103, 178, 0.1)', fill: true, tension: 0.1 }] },
+                    data: { 
+                        labels: [], 
+                        datasets: [{ 
+                            label: 'Final Value per Game', 
+                            data: [], 
+                            borderColor: '#4267B2', 
+                            backgroundColor: 'rgba(66, 103, 178, 0.1)', 
+                            fill: true, 
+                            tension: 0.1,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            pointBackgroundColor: (context) => {
+                                const index = context.dataIndex;
+                                if (!appState.valueHistory[index]) return '#4267B2';
+                                return appState.valueHistory[index].trained ? '#4267B2' : '#FF6384';
+                            }
+                        }] 
+                    },
                     options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1.0 } }, animation: { duration: 250 } }
                 });
             };
 
             const updatePlot = () => {
-                valueChart.data.labels = Array.from({ length: appState.valueHistory.length }, (_, i) => i + 1);
-                valueChart.data.datasets[0].data = appState.valueHistory;
+                valueChart.data.labels = appState.valueHistory.map((_, i) => i + 1);
+                valueChart.data.datasets[0].data = appState.valueHistory.map(item => item.value);
                 valueChart.update();
             };
 
@@ -563,7 +600,7 @@
                 loadStateInput.addEventListener('change', loadState);
             };
 
-            // --- 10. SHARE FUNCTIONALITY ---
+            // --- 10. SHARE & PERSISTENCE ---
             const gridToBase64 = (grid) => {
                 let binaryString = '';
                 for(let i = 0; i < grid.length; i += 8) {
@@ -594,22 +631,7 @@
                 url.searchParams.set('target', encodedTarget);
                 navigator.clipboard.writeText(url.href).then(() => alert('Share link copied to clipboard!'), () => alert('Failed to copy link.'));
             };
-
-            const parseURLParameters = () => {
-                const params = new URLSearchParams(window.location.search);
-                const size = params.get('size');
-                const targetData = params.get('target');
-                if(size && parseInt(size, 10) >= 4 && parseInt(size, 10) <= 32) {
-                    config.gridSize = parseInt(size, 10);
-                    gridSizeInput.value = config.gridSize;
-                }
-                if(targetData) {
-                    try { return base64ToGrid(targetData, config.gridSize); } 
-                    catch(e) { console.error("Failed to parse target grid from URL:", e); return null; }
-                } return null;
-            };
             
-            // --- 10a. STATE PERSISTENCE ---
             const saveState = async () => {
                 if (!appState.policyNetwork) {
                     alert("No model to save!");
@@ -622,11 +644,9 @@
                 const pad = (num) => num.toString().padStart(2, '0');
                 const timestamp = `${pad(now.getFullYear() % 100)}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
                 
-                // 1. Save the model files
                 const modelFilename = `model-${timestamp}`;
                 await appState.policyNetwork.save(`downloads://${modelFilename}`);
 
-                // 2. Save the state file
                 const stateToSave = {
                     config: config,
                     gameNumber: appState.gameNumber,
@@ -675,26 +695,22 @@
                         readStatePromise,
                         tf.loadLayersModel(tf.io.browserFiles([modelJsonFile, weightsFile]))
                     ]);
-
-                    console.log("Model and state file loaded successfully.");
                     
                     loadedModel.compile({
                         optimizer: tf.train.adam(loadedState.config.learningRate),
                         loss: 'categoricalCrossentropy'
                     });
-                    console.log("Loaded model has been compiled.");
 
                     if (appState.policyNetwork) appState.policyNetwork.dispose();
                     
-                    // Restore state
                     config = loadedState.config;
                     appState.policyNetwork = loadedModel;
                     appState.gameNumber = loadedState.gameNumber;
                     appState.targetGrid = new Uint8Array(Object.values(loadedState.targetGrid));
                     appState.valueHistory = loadedState.valueHistory;
                     
-                    // Refresh UI and start the next game
                     gridSizeInput.value = config.gridSize;
+                    initPlot();
                     updatePlot();
                     drawGrid(targetCtx, appState.targetGrid, config.gridSize);
                     startNewGame();
@@ -709,18 +725,31 @@
                 }
             };
 
+            const parseURLParameters = () => {
+                const params = new URLSearchParams(window.location.search);
+                const size = params.get('size');
+                const targetData = params.get('target');
+                if(size && parseInt(size, 10) >= 4 && parseInt(size, 10) <= 32) {
+                    return { size: parseInt(size, 10), targetData: targetData };
+                }
+                return { size: null, targetData: null };
+            };
+
             // --- 11. INITIALIZATION ---
             const resetApplication = () => {
-                const parsedTargetGrid = parseURLParameters(); 
+                const {size: urlSize, targetData: urlTargetData} = parseURLParameters();
+                config.gridSize = urlSize || parseInt(gridSizeInput.value, 10);
+                gridSizeInput.value = config.gridSize;
                 
-                // Reset config to defaults
-                config.gridSize = parseInt(gridSizeInput.value, 10);
-
                 if (appState.policyNetwork) appState.policyNetwork.dispose();
-                console.log("--- Creating New Policy Network ---");
                 appState.policyNetwork = createPolicyNetwork(config.gridSize);
                 
-                appState.targetGrid = parsedTargetGrid || createGrid(config.gridSize, false);
+                let targetGrid = null;
+                if(urlTargetData) {
+                    try { targetGrid = base64ToGrid(urlTargetData, config.gridSize); } catch(e) { console.error(e); }
+                }
+                appState.targetGrid = targetGrid || createGrid(config.gridSize, false);
+
                 appState.gameNumber = 0;
                 appState.valueHistory = [];
                 initPlot();
