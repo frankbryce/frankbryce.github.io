@@ -190,6 +190,7 @@
                 stepNumber: 0,
                 valueHistory: [],
                 isPlaying: false,
+                isStarted: false,
                 isTraining: false,
                 gameTrainingData: [],
                 isDrawingOnTarget: false,
@@ -215,6 +216,7 @@
             const stepNumberEl = document.getElementById('step-number');
             const maxStepsNumberEl = document.getElementById('max-steps-number');
             const finalValueEl = document.getElementById('final-value');
+            finalValueEl.textContent = 'N/A';
             const valueChartCanvas = document.getElementById('value-chart');
 
             let valueChart;
@@ -460,13 +462,13 @@
 
             // --- 8. GAME LOOP ---
             const startNewGame = () => {
+                appState.isStarted = true;
                 appState.stepNumber = 0;
                 appState.gameNumber++;
                 appState.playgroundGrid = createGrid(config.gridSize, true);
                 appState.gameTrainingData = [];
                 drawGrid(playgroundCtx, appState.playgroundGrid, config.gridSize);
                 updateUI();
-                finalValueEl.textContent = 'N/A';
             };
             
             const takeStep = async () => {
@@ -491,12 +493,14 @@
                     appState.gameTrainingData.forEach(d => d.stateTensor.dispose());
                     appState.gameTrainingData = [];
                 }
-                startNewGame();
+                finalValueEl.textContent = finalValue.toFixed(4);
+                appState.isStarted = false;
             };
 
             const gameLoop = async () => {
                 if (!appState.isPlaying) return;
-                if (appState.stepNumber < config.maxStepsPerGame) {
+                if (!appState.isStarted) startNewGame();
+                else if (appState.stepNumber < config.maxStepsPerGame) {
                     await takeStep();
                     if (countMatches(appState.playgroundGrid, appState.targetGrid) === appState.playgroundGrid.length) await endGame();
                 }
@@ -575,9 +579,10 @@
                     if(appState.isPlaying) gameLoop();
                 });
                 stepBtn.addEventListener('click', async () => {
-                    if (appState.stepNumber < config.maxStepsPerGame) {
+                    if (!appState.isStarted) startNewGame();
+                    else if (appState.stepNumber < config.maxStepsPerGame) {
                         await takeStep();
-                        if (calculateValue(appState.playgroundGrid, appState.targetGrid) === 1) await endGame();
+                        if (countMatches(appState.playgroundGrid, appState.targetGrid) === appState.playgroundGrid.length) await endGame();
                     }
                     else await endGame();
                 });
