@@ -134,9 +134,9 @@
                 <button id="step-btn">Step</button>
                 <button id="reset-btn" class="secondary-btn">Reset</button>
                 <button id="share-btn" class="secondary-btn">Share</button>
-                <button id="save-model-btn" class="secondary-btn">Save Model</button>
-                <label for="load-model-input" class="secondary-btn" style="cursor: pointer;">Load Model</label>
-                <input type="file" id="load-model-input" accept=".json,.bin" multiple style="display: none;" />
+                <button id="save-state-btn" class="secondary-btn">Save State</button>
+                <label for="load-state-input" class="secondary-btn" style="cursor: pointer;">Load State</label>
+                <input type="file" id="load-state-input" accept=".json,.bin" multiple style="display: none;" />
             </div>
              <div class="control-group" style="font-size: 0.9em; color: #555;">
                 <span>Game: <span id="game-number">0</span></span>
@@ -194,8 +194,8 @@
             const stepBtn = document.getElementById('step-btn');
             const resetBtn = document.getElementById('reset-btn');
             const shareBtn = document.getElementById('share-btn');
-            const saveModelBtn = document.getElementById('save-model-btn');
-            const loadModelInput = document.getElementById('load-model-input');
+            const saveStateBtn = document.getElementById('save-state-btn');
+            const loadStateInput = document.getElementById('load-state-input');
             
             const gameNumberEl = document.getElementById('game-number');
             const stepNumberEl = document.getElementById('step-number');
@@ -339,7 +339,6 @@
                 console.log(`--- Training on ${appState.gameTrainingData.length} samples from Game ${appState.gameNumber} ---`);
                 appState.isTraining = true;
                 updateUI();
-
                 await tf.nextFrame();
                 
                 const states = appState.gameTrainingData.map(d => d.stateTensor);
@@ -367,32 +366,37 @@
                 updateUI();
             };
 
-            // --- 7. MCTS LOGIC (REVISED) ---
+            // --- 7. MCTS LOGIC ---
             const performMCTS = async (playgroundGrid, targetGrid) => {
                 const stateTensor = getStateTensor(playgroundGrid, targetGrid);
                 const actionData = Array.from({ length: actions.length }, () => ({ visitCount: 0, totalValue: 0, maxValue: 0 }));
 
                 for (let s = 0; s < config.mctsSimulations; s++) {
                     let actionIndexToSimulate;
-                    const ucbScores = actionData.map((stats, i) => {
-                        const averageValue = stats.visitCount > 0 ? stats.totalValue / stats.visitCount : 0.0;
-                        const explorationTerm = config.ucbExplorationConstant * Math.sqrt(Math.log(s + 1) / (stats.visitCount + 1));
-                        return averageValue + explorationTerm;
-                    });
+                    const unvisitedActionIndex = actionData.findIndex(stats => stats.visitCount === 0);
 
-                    const temp = config.ucbSelectionTemperature;
-                    const exps = ucbScores.map(score => Math.exp(score / temp));
-                    const sumExps = exps.reduce((a, b) => a + b, 0);
-                    const probabilities = exps.map(e => e / sumExps);
-
-                    let cumulativeProb = 0;
-                    const random = Math.random();
-                    actionIndexToSimulate = probabilities.length - 1;
-                    for (let i = 0; i < probabilities.length; i++) {
-                        cumulativeProb += probabilities[i];
-                        if (random < cumulativeProb) {
-                            actionIndexToSimulate = i;
-                            break;
+                    if (unvisitedActionIndex !== -1) {
+                        actionIndexToSimulate = unvisitedActionIndex;
+                    } else {
+                        const ucbScores = actionData.map((stats, i) => {
+                            const averageValue = stats.totalValue / stats.visitCount;
+                            const explorationTerm = config.ucbExplorationConstant * Math.sqrt(Math.log(s) / stats.visitCount);
+                            return averageValue + explorationTerm;
+                        });
+                        const temp = config.ucbSelectionTemperature;
+                        const exps = ucbScores.map(score => Math.exp(score / temp));
+                        const sumExps = exps.reduce((a, b) => a + b, 0);
+                        const probabilities = exps.map(e => e / sumExps);
+                        
+                        let cumulativeProb = 0;
+                        const random = Math.random();
+                        actionIndexToSimulate = probabilities.length - 1;
+                        for (let i = 0; i < probabilities.length; i++) {
+                            cumulativeProb += probabilities[i];
+                            if (random < cumulativeProb) {
+                                actionIndexToSimulate = i;
+                                break;
+                            }
                         }
                     }
 
@@ -420,7 +424,7 @@
                     if (rolloutValue > stats.maxValue) stats.maxValue = rolloutValue;
                 }
 
-                const finalActionValues = actionData.map(stats => stats.visitCount > 0 ? stats.maxValue : 0.0);
+                const finalActionValues = actionData.map(stats => stats.visitCount > 0 ? stats.maxValue : -1);
                 const temp = config.selectionTemperature;
                 const exps = finalActionValues.map(v => Math.exp(v / temp));
                 const sumExps = exps.reduce((a, b) => a + b, 0);
@@ -438,14 +442,7 @@
                     }
                 }
                 
-                console.log(`--- MCTS Game ${appState.gameNumber}, Step ${appState.stepNumber} ---`);
-                console.log("Visit Counts:", actionData.map(a => a.visitCount));
-                console.log("Final Action Values (Max Value):", finalActionValues.map(v => v.toFixed(2)));
-                console.log("Action Probabilities:", probabilities.map(v => v.toFixed(2)));
-                console.log(`Probabilistically chose action #${chosenActionIndex} ('${actions[chosenActionIndex].name}')`);
-
                 appState.gameTrainingData.push({ stateTensor, idealPolicy });
-                
                 return chosenActionIndex;
             };
 
@@ -471,8 +468,6 @@
 
             const endGame = async () => {
                 const finalValue = calculateValue(appState.playgroundGrid, appState.targetGrid, config.maxStepsPerGame);
-                console.log(`--- Game ${appState.gameNumber} Ended. Final Value: ${finalValue.toFixed(3)} ---`);
-                finalValueEl.textContent = finalValue.toFixed(3);
                 appState.valueHistory.push(finalValue);
                 updatePlot();
                 await trainNetwork();
@@ -498,6 +493,7 @@
                 gridSizeInput.disabled = appState.isTraining;
                 gameNumberEl.textContent = appState.gameNumber;
                 stepNumberEl.textContent = appState.stepNumber;
+                maxStepsNumberEl.textContent = config.maxStepsPerGame;
             };
 
             const initPlot = () => {
@@ -563,8 +559,8 @@
                     }
                 });
                 shareBtn.addEventListener('click', generateShareLink);
-                saveModelBtn.addEventListener('click', saveModel);
-                loadModelInput.addEventListener('change', loadModel);
+                saveStateBtn.addEventListener('click', saveState);
+                loadStateInput.addEventListener('change', loadState);
             };
 
             // --- 10. SHARE FUNCTIONALITY ---
@@ -613,87 +609,116 @@
                 } return null;
             };
             
-            // --- 10a. MODEL PERSISTENCE ---
-            const saveModel = async () => {
+            // --- 10a. STATE PERSISTENCE ---
+            const saveState = async () => {
                 if (!appState.policyNetwork) {
                     alert("No model to save!");
                     return;
                 }
+                appState.isPlaying = false;
+                updateUI();
 
                 const now = new Date();
                 const pad = (num) => num.toString().padStart(2, '0');
                 const timestamp = `${pad(now.getFullYear() % 100)}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
                 
-                const filename = `model-${timestamp}`;
-                await appState.policyNetwork.save(`downloads://${filename}`);
-                console.log(`Model saved as ${filename}.json and ${filename}.weights.bin`);
-                alert(`Model saved as ${filename}.json and ${filename}.weights.bin`);
+                // 1. Save the model files
+                const modelFilename = `model-${timestamp}`;
+                await appState.policyNetwork.save(`downloads://${modelFilename}`);
+
+                // 2. Save the state file
+                const stateToSave = {
+                    config: config,
+                    gameNumber: appState.gameNumber,
+                    targetGrid: appState.targetGrid,
+                    valueHistory: appState.valueHistory,
+                };
+                const stateString = JSON.stringify(stateToSave, null, 2);
+                const blob = new Blob([stateString], { type: 'application/json' });
+                
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `state-${timestamp}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+
+                alert(`Saved 3 files: ${modelFilename}.json, ${modelFilename}.weights.bin, and state-${timestamp}.json`);
             };
 
-            const loadModel = async (e) => {
+            const loadState = async (e) => {
                 const files = e.target.files;
-                if (files.length !== 2) {
-                    alert("Please select both the .json and the .bin files for the model.");
+                if (files.length !== 3) {
+                    alert("Please select the 3 required files: model.json, model.weights.bin, and state.json.");
                     return;
                 }
 
-                const jsonFile = Array.from(files).find(file => file.name.endsWith('.json'));
+                const modelJsonFile = Array.from(files).find(file => file.name.startsWith('model-') && file.name.endsWith('.json'));
                 const weightsFile = Array.from(files).find(file => file.name.endsWith('.bin'));
+                const stateFile = Array.from(files).find(file => file.name.startsWith('state-'));
 
-                if (!jsonFile || !weightsFile) {
-                    alert("Both .json (topology) and .bin (weights) files are required.");
+                if (!modelJsonFile || !weightsFile || !stateFile) {
+                    alert("Could not find all 3 required files (model-....json, ....bin, state-....json).");
                     return;
                 }
 
                 try {
-                    const loadedModel = await tf.loadLayersModel(tf.io.browserFiles([jsonFile, weightsFile]));
-                    console.log("Model loaded successfully.");
+                    const readStatePromise = new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (event) => resolve(JSON.parse(event.target.result));
+                        reader.onerror = (error) => reject(error);
+                        reader.readAsText(stateFile);
+                    });
 
+                    const [loadedState, loadedModel] = await Promise.all([
+                        readStatePromise,
+                        tf.loadLayersModel(tf.io.browserFiles([modelJsonFile, weightsFile]))
+                    ]);
+
+                    console.log("Model and state file loaded successfully.");
+                    
                     loadedModel.compile({
-                        optimizer: tf.train.adam(config.learningRate),
+                        optimizer: tf.train.adam(loadedState.config.learningRate),
                         loss: 'categoricalCrossentropy'
                     });
                     console.log("Loaded model has been compiled.");
 
-                    if (appState.policyNetwork) {
-                        appState.policyNetwork.dispose();
-                    }
-                    appState.policyNetwork = loadedModel;
-
-                    const inputSize = loadedModel.inputs[0].shape[1];
-                    const newGridSize = Math.sqrt(inputSize / 2);
-
-                    if (!Number.isInteger(newGridSize) || newGridSize < 4) {
-                        alert("Loaded model has an incompatible input shape.");
-                        appState.policyNetwork = createPolicyNetwork(config.gridSize);
-                        return;
-                    }
-
-                    config.gridSize = newGridSize;
-                    gridSizeInput.value = newGridSize;
+                    if (appState.policyNetwork) appState.policyNetwork.dispose();
                     
-                    resetApplication(true);
-                    alert(`Model loaded successfully. Grid size has been set to ${newGridSize}x${newGridSize}.`);
+                    // Restore state
+                    config = loadedState.config;
+                    appState.policyNetwork = loadedModel;
+                    appState.gameNumber = loadedState.gameNumber;
+                    appState.targetGrid = new Uint8Array(Object.values(loadedState.targetGrid));
+                    appState.valueHistory = loadedState.valueHistory;
+                    
+                    // Refresh UI and start the next game
+                    gridSizeInput.value = config.gridSize;
+                    updatePlot();
+                    drawGrid(targetCtx, appState.targetGrid, config.gridSize);
+                    startNewGame();
+                    
+                    alert(`State loaded successfully. Resuming from game #${appState.gameNumber}.`);
 
                 } catch (error) {
-                    console.error("Error loading model:", error);
-                    alert("Failed to load the model. Please check the console for errors.");
+                    console.error("Error loading state:", error);
+                    alert("Failed to load state. Please check the console for errors.");
                 } finally {
                     e.target.value = '';
                 }
             };
 
             // --- 11. INITIALIZATION ---
-            const resetApplication = (keepModel = false) => {
+            const resetApplication = () => {
                 const parsedTargetGrid = parseURLParameters(); 
+                
+                // Reset config to defaults
                 config.gridSize = parseInt(gridSizeInput.value, 10);
-                maxStepsNumberEl.textContent = config.maxStepsPerGame;
 
-                if (!keepModel) {
-                    if (appState.policyNetwork) appState.policyNetwork.dispose();
-                    console.log("--- Creating New Policy Network ---");
-                    appState.policyNetwork = createPolicyNetwork(config.gridSize);
-                }
+                if (appState.policyNetwork) appState.policyNetwork.dispose();
+                console.log("--- Creating New Policy Network ---");
+                appState.policyNetwork = createPolicyNetwork(config.gridSize);
                 
                 appState.targetGrid = parsedTargetGrid || createGrid(config.gridSize, false);
                 appState.gameNumber = 0;
