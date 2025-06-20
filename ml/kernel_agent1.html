@@ -99,16 +99,15 @@
         .secondary-btn:hover:not(:disabled) {
             background-color: #5a6268;
         }
-        #grid-size-input {
+        .config-input {
             width: 50px;
             text-align: center;
         }
         #plot-container {
             width: 100%;
-            position: relative; /* Required for Chart.js responsive behavior */
-            min-height: 250px; /* Give it some space */
+            position: relative;
+            min-height: 250px;
         }
-        /* Style for training toggle */
         .toggle-label {
             display: flex;
             align-items: center;
@@ -136,15 +135,21 @@
         <div id="controls-container">
             <div class="control-group">
                 <label for="grid-size-input">Grid Size:</label>
-                <input type="number" id="grid-size-input" value="8" min="4" max="32" step="1">
+                <input type="number" id="grid-size-input" value="8" min="4" max="32" step="1" class="config-input">
                 <button id="play-pause-btn">Play</button>
                 <button id="step-btn">Step</button>
                 <button id="reset-btn" class="secondary-btn">Reset</button>
             </div>
-             <div class="control-group" style="font-size: 0.9em; color: #555;">
+            <div class="control-group" style="font-size: 0.9em; color: #555;">
                 <span>Game: <span id="game-number">0</span></span>
                 <span>Step: <span id="step-number">0</span> / <span id="max-steps-number">4</span></span>
                 <span>Final Value: <span id="final-value">N/A</span></span>
+            </div>
+            <div class="control-group">
+                 <label for="mcts-sims-input">MCTS Sims:</label>
+                 <input type="number" id="mcts-sims-input" value="40" min="4" max="500" step="1" class="config-input">
+                 <label for="rollout-depth-input">Rollout Depth:</label>
+                 <input type="number" id="rollout-depth-input" value="4" min="1" max="16" step="1" class="config-input">
             </div>
             <div class="control-group">
                 <button id="share-btn" class="secondary-btn">Share</button>
@@ -154,6 +159,10 @@
                 <label for="training-enabled-checkbox" class="toggle-label">
                     <input type="checkbox" id="training-enabled-checkbox" checked>
                     Enable Training
+                </label>
+                <label for="random-target-checkbox" class="toggle-label">
+                    <input type="checkbox" id="random-target-checkbox">
+                    Random Target
                 </label>
             </div>
         </div>
@@ -174,7 +183,8 @@
                 gridSize: 8,
                 maxStepsPerGame: 16,
                 canvasSize: 256,
-                mctsSimulations: 40, 
+                mctsSimulations: 40,
+                mctsRolloutDepth: 4, // NEW: Limit how far ahead MCTS simulates
                 learningRate: 0.005,
                 delayBetweenSteps: 50,
                 selectionTemperature: 0.05,
@@ -204,6 +214,8 @@
             const playgroundCtx = playgroundCanvas.getContext('2d');
             
             const gridSizeInput = document.getElementById('grid-size-input');
+            const mctsSimsInput = document.getElementById('mcts-sims-input');
+            const rolloutDepthInput = document.getElementById('rollout-depth-input');
             const playPauseBtn = document.getElementById('play-pause-btn');
             const stepBtn = document.getElementById('step-btn');
             const resetBtn = document.getElementById('reset-btn');
@@ -211,6 +223,7 @@
             const saveStateBtn = document.getElementById('save-state-btn');
             const loadStateInput = document.getElementById('load-state-input');
             const trainingEnabledCheckbox = document.getElementById('training-enabled-checkbox');
+            const randomTargetCheckbox = document.getElementById('random-target-checkbox');
             
             const gameNumberEl = document.getElementById('game-number');
             const stepNumberEl = document.getElementById('step-number');
@@ -370,8 +383,6 @@
                     await tf.nextFrame();
                 }
                 
-                console.log(`Training complete. Final Loss: ${finalLossValue.toFixed(4)}`);
-
                 xs.dispose();
                 ys.dispose();
                 appState.gameTrainingData.forEach(d => d.stateTensor.dispose());
@@ -416,7 +427,14 @@
 
                     let currentPlayground = applyAction(playgroundGrid, actionIndexToSimulate);
                     let rolloutValue = 0.0;
-                    for (let step = 1; step < config.maxStepsPerGame - appState.stepNumber; step++) {
+                    
+                    // NEW: Shortened rollout loop for performance
+                    const rolloutLimit = Math.min(
+                        config.maxStepsPerGame - appState.stepNumber,
+                        config.mctsRolloutDepth 
+                    );
+
+                    for (let step = 1; step < rolloutLimit; step++) {
                         if (countMatches(currentPlayground, targetGrid) === currentPlayground.length) {
                             rolloutValue = calculateValue(currentPlayground, targetGrid, appState.stepNumber + step);
                             break;
@@ -429,7 +447,7 @@
                         policy.dispose();
                     }
                     if (rolloutValue === 0.0) {
-                        rolloutValue = calculateValue(currentPlayground, targetGrid, config.maxStepsPerGame);
+                        rolloutValue = calculateValue(currentPlayground, targetGrid, appState.stepNumber + rolloutLimit);
                     }
 
                     const stats = actionData[actionIndexToSimulate];
@@ -462,6 +480,18 @@
 
             // --- 8. GAME LOOP ---
             const startNewGame = () => {
+                if (randomTargetCheckbox.checked) {
+                    const pValues = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0];
+                    const p = pValues[Math.floor(Math.random() * pValues.length)];
+                    const size = config.gridSize;
+                    const newTargetGrid = new Uint8Array(size * size);
+                    for (let i = 0; i < newTargetGrid.length; i++) {
+                        newTargetGrid[i] = Math.random() < p ? 1 : 0;
+                    }
+                    appState.targetGrid = newTargetGrid;
+                    drawGrid(targetCtx, appState.targetGrid, config.gridSize);
+                }
+
                 appState.isStarted = true;
                 appState.stepNumber = 0;
                 appState.gameNumber++;
@@ -600,6 +630,12 @@
                         gridSizeInput.value = config.gridSize;
                     }
                 });
+                mctsSimsInput.addEventListener('change', () => {
+                    config.mctsSimulations = parseInt(mctsSimsInput.value, 10);
+                });
+                rolloutDepthInput.addEventListener('change', () => {
+                    config.mctsRolloutDepth = parseInt(rolloutDepthInput.value, 10);
+                });
                 shareBtn.addEventListener('click', generateShareLink);
                 saveStateBtn.addEventListener('click', saveState);
                 loadStateInput.addEventListener('change', loadState);
@@ -715,6 +751,8 @@
                     appState.valueHistory = loadedState.valueHistory;
                     
                     gridSizeInput.value = config.gridSize;
+                    mctsSimsInput.value = config.mctsSimulations;
+                    rolloutDepthInput.value = config.mctsRolloutDepth;
                     initPlot();
                     updatePlot();
                     drawGrid(targetCtx, appState.targetGrid, config.gridSize);
@@ -763,6 +801,8 @@
             };
             
             const init = () => {
+                mctsSimsInput.value = config.mctsSimulations;
+                rolloutDepthInput.value = config.mctsRolloutDepth;
                 resetApplication();
                 setupEventListeners();
             };
