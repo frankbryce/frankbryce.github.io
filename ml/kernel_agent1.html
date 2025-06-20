@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Reinforcement Learning Playground</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 1.5rem;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #1c1e21;
+        }
+        h2 {
+            margin-top: 0;
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+        #main-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            max-width: 900px;
+            width: 100%;
+            background: #fff;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        #grids-container {
+            display: flex;
+            justify-content: space-around;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        .grid-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        canvas {
+            border: 1px solid #ccc;
+            cursor: crosshair;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            user-select: none; /* Prevents text selection on drag */
+        }
+        #controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1.5rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .control-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        button, input, label {
+            font-size: 1rem;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        button {
+            cursor: pointer;
+            background-color: #4267B2;
+            color: white;
+            border-color: #4267B2;
+            font-weight: bold;
+            transition: background-color 0.2s ease;
+        }
+        button:hover:not(:disabled) {
+            background-color: #365899;
+        }
+        button:disabled {
+            background-color: #9db0d6;
+            cursor: not-allowed;
+        }
+        .secondary-btn {
+             background-color: #6c757d;
+             border-color: #6c757d;
+        }
+        .secondary-btn:hover:not(:disabled) {
+            background-color: #5a6268;
+        }
+        #grid-size-input {
+            width: 50px;
+            text-align: center;
+        }
+        #plot-container {
+            width: 100%;
+            position: relative; /* Required for Chart.js responsive behavior */
+            min-height: 250px; /* Give it some space */
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Interactive Reinforcement Learning Playground</h1>
+
+    <div id="main-container">
+        <div id="grids-container">
+            <div class="grid-wrapper">
+                <h2>Target Grid (Drawable)</h2>
+                <canvas id="target-canvas" width="256" height="256"></canvas>
+            </div>
+            <div class="grid-wrapper">
+                <h2>Playground Grid (Agent)</h2>
+                <canvas id="playground-canvas" width="256" height="256"></canvas>
+            </div>
+        </div>
+
+        <div id="controls-container">
+            <div class="control-group">
+                <label for="grid-size-input">Grid Size:</label>
+                <input type="number" id="grid-size-input" value="8" min="4" max="32" step="1">
+                <button id="play-pause-btn">Play</button>
+                <button id="step-btn">Step</button>
+                <button id="reset-btn" class="secondary-btn">Reset</button>
+                <button id="share-btn" class="secondary-btn">Share</button>
+            </div>
+             <div class="control-group" style="font-size: 0.9em; color: #555;">
+                <span>Game: <span id="game-number">0</span></span>
+                <span>Step: <span id="step-number">0</span> / <span id="max-steps-number">4</span></span>
+                <span>Final Value: <span id="final-value">N/A</span></span>
+            </div>
+        </div>
+
+        <div id="plot-container">
+            <canvas id="value-chart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- 1. CONFIGURATION & STATE ---
+            let config = {
+                gridSize: 8,
+                maxStepsPerGame: 16,
+                canvasSize: 256,
+                mctsSimulations: 40, 
+                learningRate: 0.005,
+                delayBetweenSteps: 50,
+                selectionTemperature: 0.05,
+                ucbExplorationConstant: 1.4,
+                ucbSelectionTemperature: 0.25 // Temp for making UCB selection probabilistic
+            };
+
+            let appState = {
+                targetGrid: null,
+                playgroundGrid: null,
+                policyNetwork: null,
+                gameNumber: 0,
+                stepNumber: 0,
+                valueHistory: [],
+                isPlaying: false,
+                isTraining: false,
+                gameTrainingData: [],
+                isDrawingOnTarget: false,
+                drawingButton: -1
+            };
+
+            // --- 2. DOM ELEMENT REFERENCES ---
+            const targetCanvas = document.getElementById('target-canvas');
+            const playgroundCanvas = document.getElementById('playground-canvas');
+            const targetCtx = targetCanvas.getContext('2d');
+            const playgroundCtx = playgroundCanvas.getContext('2d');
+            
+            const gridSizeInput = document.getElementById('grid-size-input');
+            const playPauseBtn = document.getElementById('play-pause-btn');
+            const stepBtn = document.getElementById('step-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const shareBtn = document.getElementById('share-btn');
+            
+            const gameNumberEl = document.getElementById('game-number');
+            const stepNumberEl = document.getElementById('step-number');
+            const maxStepsNumberEl = document.getElementById('max-steps-number');
+            const finalValueEl = document.getElementById('final-value');
+            const valueChartCanvas = document.getElementById('value-chart');
+
+            let valueChart;
+
+            // --- 3. CORE GRID LOGIC ---
+            const createGrid = (size, random = false) => {
+                const grid = new Uint8Array(size * size);
+                if (random) {
+                    for (let i = 0; i < grid.length; i++) {
+                        grid[i] = Math.random() > 0.5 ? 1 : 0;
+                    }
+                }
+                return grid;
+            };
+
+            const drawGrid = async (ctx, grid, size) => {
+                const cellSize = config.canvasSize / size;
+                ctx.clearRect(0, 0, config.canvasSize, config.canvasSize);
+                for (let y = 0; y < size; y++) {
+                    for (let x = 0; x < size; x++) {
+                        ctx.fillStyle = grid[y * size + x] === 1 ? 'black' : 'white';
+                        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    }
+                }
+                 ctx.strokeStyle = '#eee';
+                for(let i = 0; i <= size; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(i * cellSize, 0);
+                    ctx.lineTo(i * cellSize, config.canvasSize);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(0, i * cellSize);
+                    ctx.lineTo(config.canvasSize, i * cellSize);
+                    ctx.stroke();
+                }
+                await new Promise(r => setTimeout(r, 1));
+            };
+            
+            const getGridCellFromEvent = (e) => {
+                const rect = e.target.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const cellSize = config.canvasSize / config.gridSize;
+                const gridX = Math.floor(x / cellSize);
+                const gridY = Math.floor(y / cellSize);
+                return { gridX, gridY };
+            };
+            
+            const paintTargetCell = (e) => {
+                if(appState.drawingButton === -1) return;
+                const { gridX, gridY } = getGridCellFromEvent(e);
+                if (gridX < 0 || gridX >= config.gridSize || gridY < 0 || gridY >= config.gridSize) return;
+
+                const index = gridY * config.gridSize + gridX;
+                const newValue = appState.drawingButton === 0 ? 1 : 0;
+                
+                if (appState.targetGrid[index] !== newValue) {
+                    appState.targetGrid[index] = newValue;
+                    drawGrid(targetCtx, appState.targetGrid, config.gridSize);
+                }
+            };
+
+            // --- 4. RL ACTIONS ---
+            const getNeighborCount = (grid, x, y, size) => {
+                let count = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = (x + dx);
+                        const ny = (y + dy);
+                        if (nx < 0) continue;
+                        if (ny < 0) continue;
+                        if (nx >= size) continue;
+                        if (ny >= size) continue;
+                        if (grid[ny * size + nx] === 1) count++;
+                    }
+                } return count;
+            };
+
+            const actions = [
+                { name: 'force_on', apply: (grid, size) => new Uint8Array(size * size).fill(1) },
+                { name: 'force_off', apply: (grid, size) => new Uint8Array(size * size).fill(0) },
+                ...Array.from({ length: 9 }, (_, n) => ({
+                    name: `activate_if_${n}_neighbors`,
+                    apply: (grid, size) => {
+                        const newGrid = grid.slice();
+                        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                            const index = y * size + x;
+                            if (grid[index] === 0 && getNeighborCount(grid, x, y, size) === n) newGrid[index] = 1;
+                        } return newGrid;
+                    }
+                })),
+                ...Array.from({ length: 9 }, (_, n) => ({
+                    name: `deactivate_if_${n}_neighbors`,
+                    apply: (grid, size) => {
+                        const newGrid = grid.slice();
+                        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                            const index = y * size + x;
+                            if (grid[index] === 1 && getNeighborCount(grid, x, y, size) === n) newGrid[index] = 0;
+                        } return newGrid;
+                    }
+                }))
+            ];
+            
+            const applyAction = (grid, actionIndex) => actions[actionIndex].apply(grid, config.gridSize);
+
+            // --- 5. VALUE FUNCTION ---
+            const countMatches = (playgroundGrid, targetGrid) => {
+                let matches = 0;
+                for (let i = 0; i < playgroundGrid.length; i++) {
+                    if (playgroundGrid[i] === targetGrid[i]) matches++;
+                }
+                return matches;
+            }
+            const calculateValue = (playgroundGrid, targetGrid, step) => {
+                let d = config.maxStepsPerGame - step;
+                if (d === 0) d = 1;
+                const matches = countMatches(playgroundGrid, targetGrid);
+                const percentMatch = matches / playgroundGrid.length;
+                return Math.max(0, (percentMatch - 0.5) / 0.5) * d;
+            };
+
+            // --- 6. NEURAL NETWORK (TF.js) ---
+            const createPolicyNetwork = (gridSize) => {
+                const inputSize = gridSize * gridSize * 2;
+                const model = tf.sequential();
+                model.add(tf.layers.dense({ inputShape: [inputSize], units: 128, activation: 'relu' }));
+                model.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+                model.add(tf.layers.dense({ units: actions.length, activation: 'softmax' }));
+                model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'categoricalCrossentropy' });
+                return model;
+            };
+
+            const getStateTensor = (playgroundGrid, targetGrid) => tf.tensor2d([ new Float32Array([...playgroundGrid, ...targetGrid]) ]);
+
+            const trainNetwork = async () => {
+                if (appState.gameTrainingData.length === 0) return;
+                
+                console.log(`--- Training on ${appState.gameTrainingData.length} samples from Game ${appState.gameNumber} ---`);
+                appState.isTraining = true;
+                updateUI();
+                
+                const states = appState.gameTrainingData.map(d => d.stateTensor);
+                const idealPolicies = appState.gameTrainingData.map(d => d.idealPolicy);
+                const xs = tf.concat(states);
+                const ys = tf.tensor2d(idealPolicies);
+                
+                const history = await appState.policyNetwork.fit(xs, ys, { epochs: 3, batchSize: config.maxStepsPerGame, verbose: 0 });
+                console.log(`Training complete. Final Loss: ${history.history.loss.pop().toFixed(4)}`);
+
+                xs.dispose();
+                ys.dispose();
+                appState.gameTrainingData.forEach(d => d.stateTensor.dispose());
+                appState.gameTrainingData = [];
+                appState.isTraining = false;
+                updateUI();
+            };
+
+            // --- 7. MCTS LOGIC (REVISED) ---
+            const performMCTS = async (playgroundGrid, targetGrid) => {
+                const stateTensor = getStateTensor(playgroundGrid, targetGrid);
+                const actionData = Array.from({ length: actions.length }, () => ({ visitCount: 0, totalValue: 0, maxValue: 0 }));
+
+                // Distribute the simulation budget intelligently.
+                for (let s = 0; s < config.mctsSimulations; s++) {
+                    // 1. SELECTION: Probabilistically choose a promising action.
+                    let actionIndexToSimulate;
+                    
+                    // First, ensure every action is simulated at least once ("first-play urgency").
+                    const unvisitedActionIndex = actionData.findIndex(stats => stats.visitCount === 0);
+
+                    if (unvisitedActionIndex !== -1) {
+                        actionIndexToSimulate = unvisitedActionIndex;
+                    } else {
+                        // If all actions visited, use probabilistic UCB selection.
+                        const ucbScores = actionData.map((stats, i) => {
+                            const averageValue = stats.totalValue / stats.visitCount;
+                            // Note: s in log(s) is correct here because we've already done some simulations.
+                            const explorationTerm = config.ucbExplorationConstant * Math.sqrt(Math.log(s) / stats.visitCount);
+                            return averageValue + explorationTerm;
+                        });
+
+                        // Convert scores to probabilities and sample.
+                        const temp = config.ucbSelectionTemperature;
+                        const exps = ucbScores.map(score => Math.exp(score / temp));
+                        const sumExps = exps.reduce((a, b) => a + b, 0);
+                        const probabilities = exps.map(e => e / sumExps);
+                        
+                        let cumulativeProb = 0;
+                        const random = Math.random();
+                        actionIndexToSimulate = probabilities.length - 1; // Default
+                        for (let i = 0; i < probabilities.length; i++) {
+                            cumulativeProb += probabilities[i];
+                            if (random < cumulativeProb) {
+                                actionIndexToSimulate = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 2. SIMULATION (ROLLOUT): Play out the game from the selected action.
+                    let currentPlayground = applyAction(playgroundGrid, actionIndexToSimulate);
+                    let rolloutValue = 0.0;
+                    for (let step = 1; step < config.maxStepsPerGame - appState.stepNumber; step++) {
+                        if (countMatches(currentPlayground, targetGrid) === currentPlayground.length) {
+                            rolloutValue = calculateValue(currentPlayground, targetGrid, appState.stepNumber + step);
+                            break;
+                        }
+                        const simStateTensor = getStateTensor(currentPlayground, targetGrid);
+                        const policy = appState.policyNetwork.predict(simStateTensor);
+                        const nextActionIndex = tf.multinomial(policy, 1).dataSync()[0];
+                        currentPlayground = applyAction(currentPlayground, nextActionIndex);
+                        simStateTensor.dispose();
+                        policy.dispose();
+                    }
+                    if (rolloutValue === 0.0) {
+                        rolloutValue = calculateValue(currentPlayground, targetGrid, config.maxStepsPerGame);
+                    }
+
+                    // 3. BACKPROPAGATION: Update stats for the action we just simulated.
+                    const stats = actionData[actionIndexToSimulate];
+                    stats.visitCount++;
+                    stats.totalValue += rolloutValue;
+                    if (rolloutValue > stats.maxValue) stats.maxValue = rolloutValue;
+                }
+
+                const finalActionValues = actionData.map(stats => stats.visitCount > 0 ? stats.maxValue : -1);
+                const temp = config.selectionTemperature;
+                const exps = finalActionValues.map(v => Math.exp(v / temp));
+                const sumExps = exps.reduce((a, b) => a + b, 0);
+                const probabilities = exps.map(e => e / sumExps);
+                const idealPolicy = probabilities;
+
+                let cumulativeProb = 0;
+                const random = Math.random();
+                let chosenActionIndex = probabilities.length - 1;
+                for (let i = 0; i < probabilities.length; i++) {
+                    cumulativeProb += probabilities[i];
+                    if (random < cumulativeProb) {
+                        chosenActionIndex = i;
+                        break;
+                    }
+                }
+                
+                console.log(`--- MCTS Game ${appState.gameNumber}, Step ${appState.stepNumber} ---`);
+                console.log("Visit Counts:", actionData.map(a => a.visitCount));
+                console.log("Final Action Values (Max Value):", finalActionValues.map(v => v.toFixed(2)));
+                console.log("Action Probabilities:", probabilities.map(v => v.toFixed(2)));
+                console.log(`Probabilistically chose action #${chosenActionIndex} ('${actions[chosenActionIndex].name}')`);
+
+                appState.gameTrainingData.push({ stateTensor, idealPolicy });
+                
+                return chosenActionIndex;
+            };
+
+            // --- 8. GAME LOOP ---
+            const startNewGame = () => {
+                appState.stepNumber = 0;
+                appState.gameNumber++;
+                appState.playgroundGrid = createGrid(config.gridSize, true);
+                appState.gameTrainingData = [];
+                drawGrid(playgroundCtx, appState.playgroundGrid, config.gridSize);
+                updateUI();
+                finalValueEl.textContent = 'N/A';
+            };
+            
+            const takeStep = async () => {
+                if (appState.stepNumber >= config.maxStepsPerGame) return;
+                const chosenActionIndex = await performMCTS(appState.playgroundGrid, appState.targetGrid);
+                appState.playgroundGrid = applyAction(appState.playgroundGrid, chosenActionIndex);
+                appState.stepNumber++;
+                drawGrid(playgroundCtx, appState.playgroundGrid, config.gridSize);
+                updateUI();
+            };
+
+            const endGame = async () => {
+                const finalValue = calculateValue(appState.playgroundGrid, appState.targetGrid, config.maxStepsPerGame);
+                console.log(`--- Game ${appState.gameNumber} Ended. Final Value: ${finalValue.toFixed(3)} ---`);
+                finalValueEl.textContent = finalValue.toFixed(3);
+                appState.valueHistory.push(finalValue);
+                updatePlot();
+                await trainNetwork();
+                startNewGame();
+            };
+
+            const gameLoop = async () => {
+                if (!appState.isPlaying) return;
+                if (appState.stepNumber < config.maxStepsPerGame) {
+                    await takeStep();
+                    if (countMatches(appState.playgroundGrid, appState.targetGrid) === appState.playgroundGrid.length) await endGame();
+                }
+                else await endGame();
+                setTimeout(gameLoop, config.delayBetweenSteps);
+            };
+
+            // --- 9. UI & CONTROLS ---
+            const updateUI = () => {
+                playPauseBtn.textContent = appState.isPlaying ? 'Pause' : 'Play';
+                playPauseBtn.disabled = appState.isTraining;
+                stepBtn.disabled = appState.isPlaying || appState.isTraining;
+                resetBtn.disabled = appState.isTraining;
+                gridSizeInput.disabled = appState.isTraining;
+                gameNumberEl.textContent = appState.gameNumber;
+                stepNumberEl.textContent = appState.stepNumber;
+            };
+
+            const initPlot = () => {
+                if (valueChart) valueChart.destroy();
+                valueChart = new Chart(valueChartCanvas.getContext('2d'), {
+                    type: 'line',
+                    data: { labels: [], datasets: [{ label: 'Final Value per Game', data: [], borderColor: '#4267B2', backgroundColor: 'rgba(66, 103, 178, 0.1)', fill: true, tension: 0.1 }] },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 1.0 } }, animation: { duration: 250 } }
+                });
+            };
+
+            const updatePlot = () => {
+                valueChart.data.labels = Array.from({ length: appState.valueHistory.length }, (_, i) => i + 1);
+                valueChart.data.datasets[0].data = appState.valueHistory;
+                valueChart.update();
+            };
+
+            const setupEventListeners = () => {
+                targetCanvas.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    appState.isDrawingOnTarget = true;
+                    appState.drawingButton = e.button;
+                    paintTargetCell(e);
+                });
+                targetCanvas.addEventListener('mousemove', e => {
+                    e.preventDefault();
+                    if (appState.isDrawingOnTarget) paintTargetCell(e);
+                });
+                window.addEventListener('mouseup', () => {
+                    appState.isDrawingOnTarget = false;
+                    appState.drawingButton = -1;
+                });
+                targetCanvas.addEventListener('mouseleave', () => {
+                     appState.isDrawingOnTarget = false;
+                     appState.drawingButton = -1;
+                });
+                targetCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+                playPauseBtn.addEventListener('click', () => {
+                    appState.isPlaying = !appState.isPlaying;
+                    updateUI();
+                    if(appState.isPlaying) gameLoop();
+                });
+                stepBtn.addEventListener('click', async () => {
+                    if (appState.stepNumber < config.maxStepsPerGame) {
+                        await takeStep();
+                        if (calculateValue(appState.playgroundGrid, appState.targetGrid) === 1) await endGame();
+                    }
+                    else await endGame();
+                });
+                resetBtn.addEventListener('click', () => {
+                     appState.isPlaying = false;
+                     resetApplication();
+                });
+                gridSizeInput.addEventListener('change', () => {
+                    const newSize = parseInt(gridSizeInput.value, 10);
+                    if (newSize >= 4 && newSize <= 32) {
+                        config.gridSize = newSize;
+                        appState.isPlaying = false;
+                        resetApplication();
+                    } else {
+                        gridSizeInput.value = config.gridSize;
+                    }
+                });
+                shareBtn.addEventListener('click', generateShareLink);
+            };
+
+            // --- 10. SHARE FUNCTIONALITY ---
+            const gridToBase64 = (grid) => {
+                let binaryString = '';
+                for(let i = 0; i < grid.length; i += 8) {
+                    let byte = 0;
+                    for(let j = 0; j < 8; j++) {
+                        if(i + j < grid.length && grid[i+j] === 1) byte |= (1 << j);
+                    }
+                    binaryString += String.fromCharCode(byte);
+                } return btoa(binaryString);
+            };
+
+            const base64ToGrid = (base64, size) => {
+                const grid = new Uint8Array(size * size);
+                const binaryString = atob(base64);
+                for(let i = 0; i < binaryString.length; i++) {
+                    const byte = binaryString.charCodeAt(i);
+                    for(let j = 0; j < 8; j++) {
+                        const gridIndex = i * 8 + j;
+                        if(gridIndex < grid.length) grid[gridIndex] = (byte >> j) & 1;
+                    }
+                } return grid;
+            };
+
+            const generateShareLink = () => {
+                const encodedTarget = gridToBase64(appState.targetGrid);
+                const url = new URL(window.location.href);
+                url.searchParams.set('size', config.gridSize);
+                url.searchParams.set('target', encodedTarget);
+                navigator.clipboard.writeText(url.href).then(() => alert('Share link copied to clipboard!'), () => alert('Failed to copy link.'));
+            };
+
+            const parseURLParameters = () => {
+                const params = new URLSearchParams(window.location.search);
+                const size = params.get('size');
+                const targetData = params.get('target');
+                if(size && parseInt(size, 10) >= 4 && parseInt(size, 10) <= 32) {
+                    config.gridSize = parseInt(size, 10);
+                    gridSizeInput.value = config.gridSize;
+                }
+                if(targetData) {
+                    try { return base64ToGrid(targetData, config.gridSize); } 
+                    catch(e) { console.error("Failed to parse target grid from URL:", e); return null; }
+                } return null;
+            };
+
+            // --- 11. INITIALIZATION ---
+            const resetApplication = () => {
+                const parsedTargetGrid = parseURLParameters(); 
+                config.gridSize = parseInt(gridSizeInput.value, 10);
+                maxStepsNumberEl.textContent = config.maxStepsPerGame;
+
+                if (appState.policyNetwork) appState.policyNetwork.dispose();
+                console.log("--- Creating New Policy Network ---");
+                appState.policyNetwork = createPolicyNetwork(config.gridSize);
+                appState.targetGrid = parsedTargetGrid || createGrid(config.gridSize, false);
+                appState.gameNumber = 0;
+                appState.valueHistory = [];
+                initPlot();
+                startNewGame(); 
+                drawGrid(targetCtx, appState.targetGrid, config.gridSize);
+            };
+            
+            const init = () => {
+                resetApplication();
+                setupEventListeners();
+            };
+            
+            init();
+        });
+    </script>
+</body>
+</html>
