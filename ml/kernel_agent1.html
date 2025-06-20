@@ -134,6 +134,9 @@
                 <button id="step-btn">Step</button>
                 <button id="reset-btn" class="secondary-btn">Reset</button>
                 <button id="share-btn" class="secondary-btn">Share</button>
+                <button id="save-model-btn" class="secondary-btn">Save Model</button>
+                <label for="load-model-input" class="secondary-btn" style="cursor: pointer;">Load Model</label>
+                <input type="file" id="load-model-input" accept=".json,.bin" multiple style="display: none;" />
             </div>
              <div class="control-group" style="font-size: 0.9em; color: #555;">
                 <span>Game: <span id="game-number">0</span></span>
@@ -163,7 +166,7 @@
                 delayBetweenSteps: 50,
                 selectionTemperature: 0.05,
                 ucbExplorationConstant: 1.4,
-                ucbSelectionTemperature: 0.25 // Temp for making UCB selection probabilistic
+                ucbSelectionTemperature: 0.25
             };
 
             let appState = {
@@ -191,6 +194,8 @@
             const stepBtn = document.getElementById('step-btn');
             const resetBtn = document.getElementById('reset-btn');
             const shareBtn = document.getElementById('share-btn');
+            const saveModelBtn = document.getElementById('save-model-btn');
+            const loadModelInput = document.getElementById('load-model-input');
             
             const gameNumberEl = document.getElementById('game-number');
             const stepNumberEl = document.getElementById('step-number');
@@ -266,10 +271,7 @@
                         if (dx === 0 && dy === 0) continue;
                         const nx = (x + dx);
                         const ny = (y + dy);
-                        if (nx < 0) continue;
-                        if (ny < 0) continue;
-                        if (nx >= size) continue;
-                        if (ny >= size) continue;
+                        if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
                         if (grid[ny * size + nx] === 1) count++;
                     }
                 } return count;
@@ -337,14 +339,25 @@
                 console.log(`--- Training on ${appState.gameTrainingData.length} samples from Game ${appState.gameNumber} ---`);
                 appState.isTraining = true;
                 updateUI();
+
+                await tf.nextFrame();
                 
                 const states = appState.gameTrainingData.map(d => d.stateTensor);
                 const idealPolicies = appState.gameTrainingData.map(d => d.idealPolicy);
                 const xs = tf.concat(states);
                 const ys = tf.tensor2d(idealPolicies);
                 
-                const history = await appState.policyNetwork.fit(xs, ys, { epochs: 3, batchSize: config.maxStepsPerGame, verbose: 0 });
-                console.log(`Training complete. Final Loss: ${history.history.loss.pop().toFixed(4)}`);
+                const epochs = 3;
+                let finalLossValue = 0;
+
+                for (let i = 0; i < epochs; i++) {
+                    const loss = await appState.policyNetwork.trainOnBatch(xs, ys);
+                    finalLossValue = Array.isArray(loss) ? loss[0] : loss;
+                    console.log(`Training Epoch ${i + 1}/${epochs}... Loss: ${finalLossValue.toFixed(4)}`);
+                    await tf.nextFrame();
+                }
+                
+                console.log(`Training complete. Final Loss: ${finalLossValue.toFixed(4)}`);
 
                 xs.dispose();
                 ys.dispose();
@@ -359,44 +372,30 @@
                 const stateTensor = getStateTensor(playgroundGrid, targetGrid);
                 const actionData = Array.from({ length: actions.length }, () => ({ visitCount: 0, totalValue: 0, maxValue: 0 }));
 
-                // Distribute the simulation budget intelligently.
                 for (let s = 0; s < config.mctsSimulations; s++) {
-                    // 1. SELECTION: Probabilistically choose a promising action.
                     let actionIndexToSimulate;
-                    
-                    // First, ensure every action is simulated at least once ("first-play urgency").
-                    const unvisitedActionIndex = actionData.findIndex(stats => stats.visitCount === 0);
+                    const ucbScores = actionData.map((stats, i) => {
+                        const averageValue = stats.visitCount > 0 ? stats.totalValue / stats.visitCount : 0.0;
+                        const explorationTerm = config.ucbExplorationConstant * Math.sqrt(Math.log(s + 1) / (stats.visitCount + 1));
+                        return averageValue + explorationTerm;
+                    });
 
-                    if (unvisitedActionIndex !== -1) {
-                        actionIndexToSimulate = unvisitedActionIndex;
-                    } else {
-                        // If all actions visited, use probabilistic UCB selection.
-                        const ucbScores = actionData.map((stats, i) => {
-                            const averageValue = stats.totalValue / stats.visitCount;
-                            // Note: s in log(s) is correct here because we've already done some simulations.
-                            const explorationTerm = config.ucbExplorationConstant * Math.sqrt(Math.log(s) / stats.visitCount);
-                            return averageValue + explorationTerm;
-                        });
+                    const temp = config.ucbSelectionTemperature;
+                    const exps = ucbScores.map(score => Math.exp(score / temp));
+                    const sumExps = exps.reduce((a, b) => a + b, 0);
+                    const probabilities = exps.map(e => e / sumExps);
 
-                        // Convert scores to probabilities and sample.
-                        const temp = config.ucbSelectionTemperature;
-                        const exps = ucbScores.map(score => Math.exp(score / temp));
-                        const sumExps = exps.reduce((a, b) => a + b, 0);
-                        const probabilities = exps.map(e => e / sumExps);
-                        
-                        let cumulativeProb = 0;
-                        const random = Math.random();
-                        actionIndexToSimulate = probabilities.length - 1; // Default
-                        for (let i = 0; i < probabilities.length; i++) {
-                            cumulativeProb += probabilities[i];
-                            if (random < cumulativeProb) {
-                                actionIndexToSimulate = i;
-                                break;
-                            }
+                    let cumulativeProb = 0;
+                    const random = Math.random();
+                    actionIndexToSimulate = probabilities.length - 1;
+                    for (let i = 0; i < probabilities.length; i++) {
+                        cumulativeProb += probabilities[i];
+                        if (random < cumulativeProb) {
+                            actionIndexToSimulate = i;
+                            break;
                         }
                     }
 
-                    // 2. SIMULATION (ROLLOUT): Play out the game from the selected action.
                     let currentPlayground = applyAction(playgroundGrid, actionIndexToSimulate);
                     let rolloutValue = 0.0;
                     for (let step = 1; step < config.maxStepsPerGame - appState.stepNumber; step++) {
@@ -415,14 +414,13 @@
                         rolloutValue = calculateValue(currentPlayground, targetGrid, config.maxStepsPerGame);
                     }
 
-                    // 3. BACKPROPAGATION: Update stats for the action we just simulated.
                     const stats = actionData[actionIndexToSimulate];
                     stats.visitCount++;
                     stats.totalValue += rolloutValue;
                     if (rolloutValue > stats.maxValue) stats.maxValue = rolloutValue;
                 }
 
-                const finalActionValues = actionData.map(stats => stats.visitCount > 0 ? stats.maxValue : -1);
+                const finalActionValues = actionData.map(stats => stats.visitCount > 0 ? stats.maxValue : 0.0);
                 const temp = config.selectionTemperature;
                 const exps = finalActionValues.map(v => Math.exp(v / temp));
                 const sumExps = exps.reduce((a, b) => a + b, 0);
@@ -565,6 +563,8 @@
                     }
                 });
                 shareBtn.addEventListener('click', generateShareLink);
+                saveModelBtn.addEventListener('click', saveModel);
+                loadModelInput.addEventListener('change', loadModel);
             };
 
             // --- 10. SHARE FUNCTIONALITY ---
@@ -612,16 +612,89 @@
                     catch(e) { console.error("Failed to parse target grid from URL:", e); return null; }
                 } return null;
             };
+            
+            // --- 10a. MODEL PERSISTENCE ---
+            const saveModel = async () => {
+                if (!appState.policyNetwork) {
+                    alert("No model to save!");
+                    return;
+                }
+
+                const now = new Date();
+                const pad = (num) => num.toString().padStart(2, '0');
+                const timestamp = `${pad(now.getFullYear() % 100)}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
+                
+                const filename = `model-${timestamp}`;
+                await appState.policyNetwork.save(`downloads://${filename}`);
+                console.log(`Model saved as ${filename}.json and ${filename}.weights.bin`);
+                alert(`Model saved as ${filename}.json and ${filename}.weights.bin`);
+            };
+
+            const loadModel = async (e) => {
+                const files = e.target.files;
+                if (files.length !== 2) {
+                    alert("Please select both the .json and the .bin files for the model.");
+                    return;
+                }
+
+                const jsonFile = Array.from(files).find(file => file.name.endsWith('.json'));
+                const weightsFile = Array.from(files).find(file => file.name.endsWith('.bin'));
+
+                if (!jsonFile || !weightsFile) {
+                    alert("Both .json (topology) and .bin (weights) files are required.");
+                    return;
+                }
+
+                try {
+                    const loadedModel = await tf.loadLayersModel(tf.io.browserFiles([jsonFile, weightsFile]));
+                    console.log("Model loaded successfully.");
+
+                    loadedModel.compile({
+                        optimizer: tf.train.adam(config.learningRate),
+                        loss: 'categoricalCrossentropy'
+                    });
+                    console.log("Loaded model has been compiled.");
+
+                    if (appState.policyNetwork) {
+                        appState.policyNetwork.dispose();
+                    }
+                    appState.policyNetwork = loadedModel;
+
+                    const inputSize = loadedModel.inputs[0].shape[1];
+                    const newGridSize = Math.sqrt(inputSize / 2);
+
+                    if (!Number.isInteger(newGridSize) || newGridSize < 4) {
+                        alert("Loaded model has an incompatible input shape.");
+                        appState.policyNetwork = createPolicyNetwork(config.gridSize);
+                        return;
+                    }
+
+                    config.gridSize = newGridSize;
+                    gridSizeInput.value = newGridSize;
+                    
+                    resetApplication(true);
+                    alert(`Model loaded successfully. Grid size has been set to ${newGridSize}x${newGridSize}.`);
+
+                } catch (error) {
+                    console.error("Error loading model:", error);
+                    alert("Failed to load the model. Please check the console for errors.");
+                } finally {
+                    e.target.value = '';
+                }
+            };
 
             // --- 11. INITIALIZATION ---
-            const resetApplication = () => {
+            const resetApplication = (keepModel = false) => {
                 const parsedTargetGrid = parseURLParameters(); 
                 config.gridSize = parseInt(gridSizeInput.value, 10);
                 maxStepsNumberEl.textContent = config.maxStepsPerGame;
 
-                if (appState.policyNetwork) appState.policyNetwork.dispose();
-                console.log("--- Creating New Policy Network ---");
-                appState.policyNetwork = createPolicyNetwork(config.gridSize);
+                if (!keepModel) {
+                    if (appState.policyNetwork) appState.policyNetwork.dispose();
+                    console.log("--- Creating New Policy Network ---");
+                    appState.policyNetwork = createPolicyNetwork(config.gridSize);
+                }
+                
                 appState.targetGrid = parsedTargetGrid || createGrid(config.gridSize, false);
                 appState.gameNumber = 0;
                 appState.valueHistory = [];
