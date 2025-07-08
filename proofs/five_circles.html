@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Five Circle Theorem</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f4f8;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        canvas {
+            display: block;
+            background-color: #ffffff;
+            cursor: grab;
+        }
+        canvas.grabbing {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-md p-4 z-10">
+        <div class="container mx-auto text-center">
+            <h1 class="text-2xl font-bold text-gray-800">Five Circle Theorem Explorer</h1>
+            <p class="text-gray-600 mt-1">Click and drag the points <span class="font-mono font-bold">A, B, C, D, E</span> to see the theorem in action.</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+        <canvas id="geometryCanvas"></canvas>
+    </main>
+
+    <script>
+        const canvas = document.getElementById('geometryCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let points = {};
+        let derivedPoints = {};
+        let circles = [];
+        let secondaryIntersectionPoints = [];
+        let finalCircle = null;
+
+        let draggingPoint = null;
+
+        // --- Geometric Helper Functions ---
+
+        /**
+         * Calculates the intersection of two lines defined by four points.
+         * @param {object} p1 - Point 1 of line 1 {x, y}
+         * @param {object} p2 - Point 2 of line 1 {x, y}
+         * @param {object} p3 - Point 3 of line 2 {x, y}
+         * @param {object} p4 - Point 4 of line 2 {x, y}
+         * @returns {object|null} The intersection point {x, y} or null if parallel.
+         */
+        function getLineIntersection(p1, p2, p3, p4) {
+            const den = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+            if (Math.abs(den) < 1e-10) {
+                return null;
+            }
+            const t_num = (p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x);
+            const t = t_num / den;
+            return {
+                x: p1.x + t * (p2.x - p1.x),
+                y: p1.y + t * (p2.y - p1.y),
+            };
+        }
+        
+        /**
+         * Calculates the circumcenter and radius of a triangle.
+         * @param {object} p1 - Point 1 {x, y}
+         * @param {object} p2 - Point 2 {x, y}
+         * @param {object} p3 - Point 3 {x, y}
+         * @returns {object|null} The circumcircle {center: {x, y}, radius} or null if collinear.
+         */
+        function getCircumcircle(p1, p2, p3) {
+            if (!p1 || !p2 || !p3) return null;
+            const D = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
+            if (Math.abs(D) < 1e-10) return null;
+
+            const p1sq = p1.x * p1.x + p1.y * p1.y;
+            const p2sq = p2.x * p2.x + p2.y * p2.y;
+            const p3sq = p3.x * p3.x + p3.y * p3.y;
+
+            const Ux = (p1sq * (p2.y - p3.y) + p2sq * (p3.y - p1.y) + p3sq * (p1.y - p2.y)) / D;
+            const Uy = (p1sq * (p3.x - p2.x) + p2sq * (p1.x - p3.x) + p3sq * (p2.x - p1.x)) / D;
+            
+            const center = { x: Ux, y: Uy };
+            const radius = Math.sqrt(Math.pow(p1.x - Ux, 2) + Math.pow(p1.y - Uy, 2));
+
+            return { center, radius };
+        }
+
+        /**
+         * Calculates the intersection points of two circles.
+         * @param {object} c1 - Circle 1 {center, radius}
+         * @param {object} c2 - Circle 2 {center, radius}
+         * @returns {array} An array of intersection points [{x,y}, {x,y}]
+         */
+        function getCircleIntersections(c1, c2) {
+            if (!c1 || !c2) return [];
+            const { x: x1, y: y1 } = c1.center;
+            const { x: x2, y: y2 } = c2.center;
+            const r1 = c1.radius;
+            const r2 = c2.radius;
+
+            const d_sq = Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2);
+            const d = Math.sqrt(d_sq);
+
+            if (d > r1 + r2 || d < Math.abs(r1 - r2) || d === 0) {
+                return [];
+            }
+
+            const a = (r1 * r1 - r2 * r2 + d_sq) / (2 * d);
+            const h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
+            
+            const x_mid = x1 + a * (x2 - x1) / d;
+            const y_mid = y1 + a * (y2 - y1) / d;
+
+            const int1 = {
+                x: x_mid + h * (y2 - y1) / d,
+                y: y_mid - h * (x2 - x1) / d,
+            };
+            const int2 = {
+                x: x_mid - h * (y2 - y1) / d,
+                y: y_mid + h * (x2 - x1) / d,
+            };
+            
+            return [int1, int2];
+        }
+
+
+        // --- Application Logic ---
+
+        function init() {
+            const mainElement = document.querySelector('main');
+            canvas.width = mainElement.clientWidth;
+            canvas.height = mainElement.clientHeight;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) * 0.20;
+            
+            points = {
+                A: { x: centerX + radius * Math.cos(0 * 2 * Math.PI / 5 + Math.PI/2), y: centerY - radius * Math.sin(0 * 2 * Math.PI / 5 + Math.PI/2), label: 'A', draggable: true },
+                B: { x: centerX + radius * Math.cos(1 * 2 * Math.PI / 5 + Math.PI/2), y: centerY - radius * Math.sin(1 * 2 * Math.PI / 5 + Math.PI/2), label: 'B', draggable: true },
+                C: { x: centerX + radius * Math.cos(2 * 2 * Math.PI / 5 + Math.PI/2), y: centerY - radius * Math.sin(2 * 2 * Math.PI / 5 + Math.PI/2), label: 'C', draggable: true },
+                D: { x: centerX + radius * Math.cos(3 * 2 * Math.PI / 5 + Math.PI/2), y: centerY - radius * Math.sin(3 * 2 * Math.PI / 5 + Math.PI/2), label: 'D', draggable: true },
+                E: { x: centerX + radius * Math.cos(4 * 2 * Math.PI / 5 + Math.PI/2), y: centerY - radius * Math.sin(4 * 2 * Math.PI / 5 + Math.PI/2), label: 'E', draggable: true },
+            };
+
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('mouseout', onMouseUp);
+            window.addEventListener('resize', init);
+
+            updateAndDraw();
+        }
+        
+        function update() {
+            const { A, B, C, D, E } = points;
+            
+            // 1. Calculate star points P, Q, R, S, T
+            derivedPoints = {
+                P: getLineIntersection(A, E, B, C),
+                Q: getLineIntersection(A, B, C, D),
+                R: getLineIntersection(B, C, D, E),
+                S: getLineIntersection(C, D, E, A),
+                T: getLineIntersection(D, E, A, B)
+            };
+            Object.keys(derivedPoints).forEach(key => {
+                if (derivedPoints[key]) derivedPoints[key].label = key;
+            });
+
+            // 2. CORRECTED: Calculate the 5 circumcircles based on the VISUAL diagram, not the ambiguous text.
+            const {P, Q, R, S, T} = derivedPoints;
+            const circlePBA = getCircumcircle(P, B, A);
+            const circleQCB = getCircumcircle(Q, C, B);
+            const circleRDC = getCircumcircle(R, D, C);
+            const circleSED = getCircumcircle(S, E, D);
+            const circleTAE = getCircumcircle(T, A, E);
+
+            // This order ensures adjacent circles in the array intersect at a pentagon vertex.
+            circles = [circlePBA, circleQCB, circleRDC, circleSED, circleTAE];
+            
+            // 3. CORRECTED: Find the secondary intersection points based on the new circle order.
+            secondaryIntersectionPoints = [];
+            // This array lists the pentagon vertex shared by adjacent circles.
+            const sharedVertices = [points.B, points.C, points.D, points.E, points.A];
+
+            if (circles.every(c => c)) { // Ensure all circles were created
+                for (let i = 0; i < 5; i++) {
+                    const c1 = circles[i];
+                    const c2 = circles[(i + 1) % 5];
+                    const intersections = getCircleIntersections(c1, c2);
+
+                    const commonPentagonPoint = sharedVertices[i];
+                    
+                    if (intersections.length === 2 && commonPentagonPoint) {
+                        const dist1 = Math.hypot(intersections[0].x - commonPentagonPoint.x, intersections[0].y - commonPentagonPoint.y);
+                        const dist2 = Math.hypot(intersections[1].x - commonPentagonPoint.x, intersections[1].y - commonPentagonPoint.y);
+                        
+                        // We want the intersection point that is *not* the common pentagon vertex.
+                        // It will have a larger distance from that vertex.
+                        const newPoint = dist1 > dist2 ? intersections[0] : intersections[1];
+                        newPoint.label = `X${i}`;
+                        secondaryIntersectionPoints.push(newPoint);
+                    }
+                }
+            }
+            
+            // 4. Calculate the final circle
+            finalCircle = null;
+            if (secondaryIntersectionPoints.length >= 3) {
+                 finalCircle = getCircumcircle(
+                    secondaryIntersectionPoints[0], 
+                    secondaryIntersectionPoints[1], 
+                    secondaryIntersectionPoints[2]
+                );
+            }
+        }
+        
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const pentagonPoints = Object.values(points);
+            
+            // Draw extended pentagon lines
+            ctx.beginPath();
+            ctx.strokeStyle = '#a0aec0'; // coolGray-400
+            ctx.lineWidth = 1;
+            for(let i=0; i<5; i++){
+                const p1 = pentagonPoints[i];
+                const p2 = pentagonPoints[(i+1)%5];
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                ctx.moveTo(p1.x - dx * 3, p1.y - dy * 3);
+                ctx.lineTo(p1.x + dx * 3, p1.y + dy * 3);
+            }
+            ctx.stroke();
+
+            // Draw the 5 circumcircles
+            ctx.strokeStyle = 'rgba(52, 211, 153, 0.8)'; // emerald-400
+            ctx.lineWidth = 2;
+            circles.forEach(circle => {
+                if (circle) {
+                    ctx.beginPath();
+                    ctx.arc(circle.center.x, circle.center.y, circle.radius, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw the final "common" circle
+            if(finalCircle) {
+                ctx.strokeStyle = '#ec4899'; // pink-500
+                ctx.lineWidth = 3.5;
+                ctx.setLineDash([8, 6]);
+                ctx.beginPath();
+                ctx.arc(finalCircle.center.x, finalCircle.center.y, finalCircle.radius, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Draw all points
+            const allPoints = [
+                ...Object.values(points), 
+                ...Object.values(derivedPoints).filter(p => p),
+                ...secondaryIntersectionPoints
+            ];
+            allPoints.forEach(p => drawPoint(p));
+        }
+        
+        function drawPoint(p) {
+            const isDraggable = p.draggable;
+            const radius = isDraggable ? 10 : 6;
+            let color = isDraggable ? '#4f46e5' : '#fb923c'; // Draggable: indigo-600, Star points: orange-400
+            
+            const isSecondary = p.label && p.label.startsWith('X');
+            if (isSecondary) {
+                 color = '#db2777'; // pink-600
+            }
+
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, radius, 0, 2 * Math.PI);
+            ctx.fill();
+
+            if (p.label) {
+                ctx.fillStyle = '#1f2937';
+                ctx.font = 'bold 14px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(p.label, p.x, p.y - radius - 8);
+            }
+        }
+
+        function updateAndDraw() {
+            requestAnimationFrame(() => {
+                update();
+                draw();
+            });
+        }
+
+        // --- Event Handlers ---
+        
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }
+
+        function onMouseDown(e) {
+            const mousePos = getMousePos(e);
+            
+            for (const key in points) {
+                const p = points[key];
+                if (p.draggable) {
+                    const dist = Math.hypot(mousePos.x - p.x, mousePos.y - p.y);
+                    if (dist < 15) {
+                        draggingPoint = p;
+                        canvas.classList.add('grabbing');
+                        return;
+                    }
+                }
+            }
+        }
+
+        function onMouseMove(e) {
+            if (draggingPoint) {
+                const mousePos = getMousePos(e);
+                draggingPoint.x = mousePos.x;
+                draggingPoint.y = mousePos.y;
+                updateAndDraw();
+            }
+        }
+
+        function onMouseUp() {
+            draggingPoint = null;
+            canvas.classList.remove('grabbing');
+        }
+
+        init();
+
+    </script>
+</body>
+</html>
