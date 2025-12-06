@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Graphing Tool</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Math.js for parsing expressions -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        canvas { display: block; touch-action: none; }
+        /* Custom scrollbar for function list if we added one later */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans text-gray-900">
+
+    <!-- UI Overlay -->
+    <div class="absolute top-4 left-4 right-4 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[600px] z-10 flex flex-col gap-2">
+        
+        <!-- Input Bar -->
+        <div class="glass-panel rounded-lg p-2 flex gap-2 items-center">
+            <span class="pl-2 font-serif italic text-lg text-gray-600">f(x) =</span>
+            <input type="text" id="functionInput" 
+                   class="flex-1 bg-transparent border-none outline-none text-lg font-mono placeholder-gray-400" 
+                   placeholder="e.g., x^2 * sin(x)" 
+                   value="x^2">
+            <button id="plotBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition-colors">
+                Plot
+            </button>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMsg" class="hidden glass-panel bg-red-50 border-red-200 text-red-600 px-4 py-2 rounded text-sm">
+            Invalid syntax
+        </div>
+
+        <!-- Helper Functions -->
+        <div class="hidden md:flex flex-wrap gap-2 justify-center text-xs text-gray-500">
+            <span>Try:</span>
+            <button class="hover:text-blue-600 underline" onclick="setInput('sin(x)')">sin(x)</button>
+            <button class="hover:text-blue-600 underline" onclick="setInput('x^3 - x')">x^3 - x</button>
+            <button class="hover:text-blue-600 underline" onclick="setInput('1/x')">1/x</button>
+            <button class="hover:text-blue-600 underline" onclick="setInput('log(x)')">log(x)</button>
+            <button class="hover:text-blue-600 underline" onclick="setInput('sqrt(100 - x^2)')">circle segment</button>
+        </div>
+    </div>
+
+    <!-- Zoom Controls -->
+    <div class="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
+        <button id="resetBtn" class="glass-panel w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 font-bold" title="Reset View">⟲</button>
+        <button id="zoomInBtn" class="glass-panel w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 font-bold text-xl">+</button>
+        <button id="zoomOutBtn" class="glass-panel w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-100 font-bold text-xl">-</button>
+    </div>
+
+    <!-- The Canvas -->
+    <canvas id="graphCanvas" class="w-full h-full cursor-crosshair"></canvas>
+
+    <script>
+        const canvas = document.getElementById('graphCanvas');
+        const ctx = canvas.getContext('2d');
+        const input = document.getElementById('functionInput');
+        const plotBtn = document.getElementById('plotBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        // State
+        let scale = 40; // pixels per unit
+        let offsetX = 0; // translation x in pixels
+        let offsetY = 0; // translation y in pixels
+        let expressionStr = input.value;
+        let compiledExpr = null;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        // Init
+        function init() {
+            resize();
+            parseExpression();
+            draw();
+            
+            window.addEventListener('resize', () => { resize(); draw(); });
+            
+            // Mouse Interaction
+            canvas.addEventListener('mousedown', startDrag);
+            canvas.addEventListener('mousemove', drag);
+            window.addEventListener('mouseup', stopDrag);
+            canvas.addEventListener('wheel', handleZoom, { passive: false });
+
+            // Touch Interaction
+            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            canvas.addEventListener('touchend', stopDrag);
+
+            // Controls
+            document.getElementById('zoomInBtn').addEventListener('click', () => zoom(1.2));
+            document.getElementById('zoomOutBtn').addEventListener('click', () => zoom(0.8));
+            document.getElementById('resetBtn').addEventListener('click', resetView);
+            
+            // Input
+            plotBtn.addEventListener('click', () => {
+                expressionStr = input.value;
+                parseExpression();
+                draw();
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    expressionStr = input.value;
+                    parseExpression();
+                    draw();
+                }
+            });
+        }
+
+        // --- Core Logic ---
+
+        function setInput(val) {
+            input.value = val;
+            expressionStr = val;
+            parseExpression();
+            draw();
+        }
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Center origin initially
+            if (offsetX === 0 && offsetY === 0) {
+                offsetX = canvas.width / 2;
+                offsetY = canvas.height / 2;
+            }
+        }
+
+        function resetView() {
+            scale = 40;
+            offsetX = canvas.width / 2;
+            offsetY = canvas.height / 2;
+            draw();
+        }
+
+        function parseExpression() {
+            try {
+                // Using math.js compile
+                compiledExpr = math.compile(expressionStr);
+                // Test evaluation to catch errors early
+                compiledExpr.evaluate({x: 0}); 
+                
+                input.classList.remove('text-red-600');
+                errorMsg.classList.add('hidden');
+            } catch (err) {
+                console.error("Parse error:", err);
+                input.classList.add('text-red-600');
+                errorMsg.classList.remove('hidden');
+                compiledExpr = null;
+            }
+        }
+
+        function zoom(factor) {
+            // Zoom towards center of screen
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            // Calculate world coordinate of center before zoom
+            const worldX = (cx - offsetX) / scale;
+            const worldY = (offsetY - cy) / scale;
+
+            scale *= factor;
+
+            // Re-calculate offset to keep center fixed
+            offsetX = cx - (worldX * scale);
+            offsetY = cy + (worldY * scale); // Note Y inversion logic
+
+            draw();
+        }
+
+        function handleZoom(e) {
+            e.preventDefault();
+            const zoomIntensity = 0.1;
+            const factor = e.deltaY < 0 ? (1 + zoomIntensity) : (1 / (1 + zoomIntensity));
+            
+            // Zoom towards mouse pointer
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+
+            const worldX = (mx - offsetX) / scale;
+            const worldY = (offsetY - my) / scale;
+
+            scale *= factor;
+
+            offsetX = mx - (worldX * scale);
+            offsetY = my + (worldY * scale);
+
+            draw();
+        }
+
+        // --- Drawing ---
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawGrid();
+            drawAxes();
+            if (compiledExpr) {
+                drawCurve();
+            }
+        }
+
+        function drawGrid() {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#e5e7eb'; // light gray
+
+            // Determine grid spacing based on scale
+            // We want a line roughly every 50-100 pixels
+            let step = 1;
+            const minPx = 50;
+            
+            // If scale is huge (zoomed in), step < 1 (0.5, 0.1 etc)
+            // If scale is tiny (zoomed out), step > 1 (10, 100 etc)
+            while (step * scale < minPx) step *= 2;
+            while (step * scale > minPx * 2) step /= 2;
+
+            // Vertical lines
+            const startX = Math.floor((-offsetX) / (step * scale));
+            const endX = Math.ceil((w - offsetX) / (step * scale));
+
+            ctx.beginPath();
+            for (let i = startX; i <= endX; i++) {
+                const x = offsetX + (i * step * scale);
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+            }
+            
+            // Horizontal lines
+            // World Y is (offsetY - pixelY) / scale
+            // Pixel Y is offsetY - (worldY * scale)
+            const startY = Math.floor((offsetY - h) / (step * scale));
+            const endY = Math.ceil(offsetY / (step * scale));
+
+            for (let i = startY; i <= endY; i++) {
+                const y = offsetY - (i * step * scale);
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+            }
+            ctx.stroke();
+
+            // Draw numbers (every 2nd step to avoid clutter)
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            
+            // X-axis labels
+            for (let i = startX; i <= endX; i++) {
+                if (i === 0) continue; // Skip origin
+                const x = offsetX + (i * step * scale);
+                // Only draw if within screen bounds
+                if(x > -20 && x < w + 20) {
+                     // Keep label near x-axis if visible, else clamp to edge
+                    let labelY = offsetY + 5;
+                    if (labelY < 5) labelY = 5;
+                    if (labelY > h - 15) labelY = h - 15;
+                    ctx.fillText((i * step).toPrecision(4).replace(/\.?0+$/,""), x, labelY);
+                }
+            }
+
+            // Y-axis labels
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            for (let i = startY; i <= endY; i++) {
+                if (i === 0) continue;
+                const y = offsetY - (i * step * scale);
+                if(y > -20 && y < h + 20) {
+                    let labelX = offsetX - 5;
+                    if (labelX < 30) labelX = 30;
+                    if (labelX > w - 10) labelX = w - 10;
+                    ctx.fillText((i * step).toPrecision(4).replace(/\.?0+$/,""), labelX, y);
+                }
+            }
+        }
+
+        function drawAxes() {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#374151'; // Dark gray
+            ctx.beginPath();
+
+            // X Axis
+            if (offsetY >= 0 && offsetY <= h) {
+                ctx.moveTo(0, offsetY);
+                ctx.lineTo(w, offsetY);
+            } else if (offsetY < 0) {
+                // Off screen top
+            } else {
+                // Off screen bottom
+            }
+
+            // Y Axis
+            if (offsetX >= 0 && offsetX <= w) {
+                ctx.moveTo(offsetX, 0);
+                ctx.lineTo(offsetX, h);
+            }
+            ctx.stroke();
+        }
+
+        function drawCurve() {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#2563eb'; // Blue-600
+            ctx.beginPath();
+
+            const w = canvas.width;
+            // Step size in pixels. 1 provides highest quality, but higher is faster.
+            const pxStep = 2; 
+            
+            let firstPoint = true;
+
+            for (let px = 0; px <= w; px += pxStep) {
+                // Convert Pixel X to World X
+                const x = (px - offsetX) / scale;
+                
+                try {
+                    // Evaluate Math
+                    const y = compiledExpr.evaluate({ x: x });
+                    
+                    if (typeof y !== 'number' || isNaN(y) || !isFinite(y)) {
+                        firstPoint = true; // Break the line
+                        continue;
+                    }
+
+                    // Convert World Y to Pixel Y
+                    // Y grows down in canvas, but Up in Cartesian
+                    const py = offsetY - (y * scale);
+
+                    // Optimization: Don't draw way off screen to avoid rendering glitches
+                    // But we need to calculate them to keep line continuity
+                    const limit = canvas.height * 10;
+                    if (py < -limit || py > limit) {
+                        firstPoint = true;
+                        continue;
+                    }
+
+                    if (firstPoint) {
+                        ctx.moveTo(px, py);
+                        firstPoint = false;
+                    } else {
+                        ctx.lineTo(px, py);
+                    }
+                } catch (e) {
+                    firstPoint = true;
+                }
+            }
+            ctx.stroke();
+        }
+
+        // --- Interaction Handlers ---
+
+        function startDrag(e) {
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            canvas.style.cursor = 'grabbing';
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - lastMouseX;
+            const dy = e.clientY - lastMouseY;
+            offsetX += dx;
+            offsetY += dy;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            draw();
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            canvas.style.cursor = 'crosshair';
+        }
+
+        // Touch logic for mobile
+        let lastTouchX = 0;
+        let lastTouchY = 0;
+
+        function handleTouchStart(e) {
+            if (e.touches.length === 1) {
+                isDragging = true;
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+            }
+        }
+
+        function handleTouchMove(e) {
+            if (!isDragging) return;
+            e.preventDefault(); // Prevent scrolling
+            if (e.touches.length === 1) {
+                const dx = e.touches[0].clientX - lastTouchX;
+                const dy = e.touches[0].clientY - lastTouchY;
+                offsetX += dx;
+                offsetY += dy;
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+                draw();
+            }
+        }
+
+        // Start
+        init();
+
+    </script>
+</body>
+</html>
