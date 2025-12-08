@@ -180,12 +180,16 @@
         // Dynamic Resizing Logic
         function resizeGrid() {
             const headerHeight = headerEl.offsetHeight;
-            // Vertical: Window - Header - BodyPad(16) - Border(4) - Pad(8) - Buffer(12) = ~40px buffer total
-            const availableHeight = window.innerHeight - headerHeight - 40;
+            // Use visualViewport if available for better mobile accuracy (URL bars etc)
+            const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+            // Vertical: Window - Header - BodyPad(16) - Border(4) - Pad(8) - Buffer(20) = ~48px buffer total
+            // Increased buffer to 60 to be safe on mobile
+            const availableHeight = vh - headerHeight - 60;
             // Horizontal: Window - BodyPad(16) - Border(8) - Pad(8) - Buffer(8) = ~40px buffer total
             // Also constrain by the max-w-2xl (approx 672px) of the container
             const containerMaxWidth = 672; // max-w-2xl is 42rem = 672px
-            const windowAvailableWidth = window.innerWidth - 40;
+            const windowAvailableWidth = vw - 40;
             const availableWidth = Math.min(windowAvailableWidth, containerMaxWidth - 20); // -20 for internal padding/borders
             // Calculate max possible square size
             const maxCellHeight = Math.floor(availableHeight / config.rows);
